@@ -4,18 +4,17 @@ import Review.Test
 import ReviewPipelineStyles
     exposing
         ( PipelineRule
-        , are
         , byReportingError
         , forbid
+        , haveFewerStepsThan
+        , haveMoreStepsThan
         , leftCompositionPipelines
         , leftPizzaPipelines
-        , longerThan
-        , multiline
         , parentheticalApplicationPipelines
         , rightCompositionPipelines
         , rightPizzaPipelines
         , rule
-        , shorterThan
+        , spanMultipleLines
         , that
         )
 import Test exposing (Test, describe, test)
@@ -28,7 +27,7 @@ all =
         , recoveryTests
         , defaultErrorTest
         , ruleHierarchyTests
-        , multilineTests
+        , spanMultipleLinesTests
         , lengthTests
         ]
 
@@ -228,9 +227,9 @@ a = foo |> bar
         ]
 
 
-multilineTests : Test
-multilineTests =
-    describe "multiline"
+spanMultipleLinesTests : Test
+spanMultipleLinesTests =
+    describe "spanMultipleLines"
         [ test "single line are single line" <|
             \() ->
                 """module A exposing (..)
@@ -241,7 +240,7 @@ a =
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that (are multiline)
+                                |> that spanMultipleLines
                                 |> fail
                             ]
                         )
@@ -257,7 +256,7 @@ a =
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that (are multiline)
+                                |> that spanMultipleLines
                                 |> fail
                             ]
                         )
@@ -270,7 +269,7 @@ a =
 lengthTests : Test
 lengthTests =
     describe "length"
-        [ test "longerThan" <|
+        [ test "haveMoreStepsThan" <|
             \() ->
                 """module A exposing (..)
 
@@ -285,14 +284,14 @@ c =
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that (are (longerThan 3))
+                                |> that (haveMoreStepsThan 3)
                                 |> fail
                             ]
                         )
                     |> Review.Test.expectErrors
                         [ expectFail """foo |> bar |> baz
     |> i |> j |> k""", expectFail """foo |> bar |> baz |> i |> j""" ]
-        , test "shorterThan" <|
+        , test "haveFewerStepsThan" <|
             \() ->
                 """module A exposing (..)
 
@@ -309,7 +308,7 @@ c =
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that (are (shorterThan 5))
+                                |> that (haveFewerStepsThan 5)
                                 |> fail
                             ]
                         )

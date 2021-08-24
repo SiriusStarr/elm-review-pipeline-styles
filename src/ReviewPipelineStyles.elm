@@ -3,8 +3,8 @@ module ReviewPipelineStyles exposing
     , PipelineRule, forbid, that, exceptThoseThat
     , byReportingError
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
-    , are, areNot, and, or
-    , multiline, longerThan, shorterThan
+    , and, or, doNot
+    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan
     , Pipeline
     , Predicate, Operator
     )
@@ -31,12 +31,12 @@ module ReviewPipelineStyles exposing
 
 ## Creating Predicates
 
-@docs are, areNot, and, or
+@docs and, or, doNot
 
 
 ## Predicates
 
-@docs multiline, longerThan, shorterThan
+@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan
 
 
 ## Manual Predicates
@@ -75,7 +75,7 @@ the usage of `<|` or the usage of excessively-long `|>` pipelines.
             [ forbid leftPizzaPipelines
                 |> byReportingError "Forbidden <| pipeline!" [ "Left application pipelines are forbidden in this project, so please remove it." ]
             , forbid rightPizzaPipelines
-                |> that (are (longerThan 10))
+                |> that (haveMoreStepsThan 10)
                 |> byReportingError "Overly long |> pipeline!" [ "Right application pipelines may only be a maximum of 11 steps long in this project, so please remove it." ]
             ]
         ]
@@ -171,7 +171,7 @@ your project, you could use:
 Or, to forbid only `|>` pipelines that are extremely long, you could use:
 
     forbid rightPizzaPipelines
-        |> that (are (longerThan 10))
+        |> that (haveMoreStepsThan 10)
         |> byReportingError "Overly long |> pipeline!" [ "Right application pipelines may only be a maximum of 11 steps long in this project, so please remove it." ]
 
 -}
@@ -314,26 +314,11 @@ byReportingError message details (PipelineRule r) =
     PipelineRule { r | error = Just <| Fail { message = message, details = details } }
 
 
-{-| Create a `Predicate` that matches pipelines that match a function.
--}
-are : (Pipeline -> Bool) -> Predicate
-are p =
-    Predicate p
-
-
-{-| Create a `Predicate` that matches pipelines that do **not** match a
-function.
--}
-areNot : (Pipeline -> Bool) -> Predicate
-areNot p =
-    Predicate (not << p)
-
-
 {-| Exclude (whitelist) pipelines that match a predicate from being forbidden.
 
     forbid rightPizzaPipelines
-        |> that (are multiline)
-        |> exceptThoseThat (are (longerThan 5))
+        |> that spanMultipleLines
+        |> exceptThoseThat (haveMoreStepsThan 5)
 
 -}
 exceptThoseThat : Predicate -> PipelineRule { r | hasNoException : () } -> PipelineRule { r | hasException : () }
@@ -345,7 +330,7 @@ exceptThoseThat p (PipelineRule r) =
 predicate.
 
     forbid rightPizzaPipelines
-        |> that (are multiline)
+        |> that spanMultipleLines
 
 -}
 that : Predicate -> PipelineRule { r | hasNoLimit : () } -> PipelineRule { r | hasLimit : () }
@@ -355,14 +340,16 @@ that p (PipelineRule r) =
 
 {-| Checks whether or not a pipeline spans multiple lines of code.
 -}
-multiline : Pipeline -> Bool
-multiline { node } =
-    let
-        range : Range
-        range =
-            Node.range node
-    in
-    range.end.row > range.start.row
+spanMultipleLines : Predicate
+spanMultipleLines =
+    Predicate <|
+        \{ node } ->
+            let
+                range : Range
+                range =
+                    Node.range node
+            in
+            range.end.row > range.start.row
 
 
 {-| Checks whether the length of a pipeline is longer than a specified number.
@@ -375,9 +362,9 @@ Note that the length of a pipeline is the number of operators in it, e.g.
 has length **2** for the purposes of this predicate.
 
 -}
-longerThan : Int -> (Pipeline -> Bool)
-longerThan i { steps } =
-    List.length steps > i + 1
+haveMoreStepsThan : Int -> Predicate
+haveMoreStepsThan i =
+    Predicate <| \{ steps } -> List.length steps > i + 1
 
 
 {-| Checks whether the length of a pipeline is less than a specified number.
@@ -390,9 +377,9 @@ Note that the length of a pipeline is the number of operators in it, e.g.
 has length **2** for the purposes of this predicate.
 
 -}
-shorterThan : Int -> (Pipeline -> Bool)
-shorterThan i { steps } =
-    List.length steps < i + 1
+haveFewerStepsThan : Int -> Predicate
+haveFewerStepsThan i =
+    Predicate <| \{ steps } -> List.length steps < i + 1
 
 
 {-| Create a `Predicate` that matches pipelines that match both of two
@@ -409,6 +396,13 @@ predicates.
 or : Predicate -> Predicate -> Predicate
 or (Predicate p1) (Predicate p2) =
     Predicate <| \p -> p1 p || p2 p
+
+
+{-| Negate a `Predicate`.
+-}
+doNot : Predicate -> Predicate
+doNot (Predicate p) =
+    Predicate <| (not << p)
 
 
 {-| Convert a single `PipelineRule`, as passed to the configuration, into a
@@ -436,6 +430,8 @@ ruleToFilter (PipelineRule { forbidden, except, operator, error }) pipeline =
 -}
 type alias Filter =
     Pipeline -> Maybe (List (Error {}))
+
+
 {-| Visit function TLDs and pass their expression to `expressionVisitor`.
 -}
 declarationVisitor : List Filter -> Node Declaration -> List (Error {})

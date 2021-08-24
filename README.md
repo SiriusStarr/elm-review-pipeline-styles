@@ -31,7 +31,7 @@ config =
         [ forbid leftPizzaPipelines
             |> byReportingError "Forbidden <| pipeline!" [ "Left application pipelines are forbidden in this project, so please remove it." ]
         , forbid rightPizzaPipelines
-            |> that (are (longerThan 10))
+            |> that (haveMoreStepsThan 10)
             |> byReportingError "Overly long |> pipeline!" [ "Right application pipelines may only be a maximum of 11 steps long in this project, so please remove it." ]
         ]
     ]
