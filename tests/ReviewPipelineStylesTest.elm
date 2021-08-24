@@ -1,24 +1,329 @@
 module ReviewPipelineStylesTest exposing (all)
 
-import ReviewPipelineStyles exposing (rule)
 import Review.Test
+import ReviewPipelineStyles
+    exposing
+        ( PipelineRule
+        , are
+        , byReportingError
+        , forbid
+        , leftCompositionPipelines
+        , leftPizzaPipelines
+        , longerThan
+        , multiline
+        , parentheticalApplicationPipelines
+        , rightCompositionPipelines
+        , rightPizzaPipelines
+        , rule
+        , shorterThan
+        , that
+        )
 import Test exposing (Test, describe, test)
 
 
 all : Test
 all =
     describe "ReviewPipelineStyles"
-        [ test "should report an error when REPLACEME" <|
+        [ operatorSpecificityTests
+        , recoveryTests
+        , defaultErrorTest
+        , ruleHierarchyTests
+        , multilineTests
+        , lengthTests
+        ]
+
+
+operatorSpecificityTests : Test
+operatorSpecificityTests =
+    let
+        allPipelines : String
+        allPipelines =
+            """module A exposing (..)
+
+a =
+    foo <| bar <| baz
+
+b =
+    foo << bar << baz
+
+c =
+    foo >> bar >> baz
+
+d =
+    foo (bar (baz (i (j k))))
+
+e =
+    foo |> bar |> baz
+
+f =
+    a |. b |. c
+
+g =
+    a |= b |= c
+"""
+    in
+    describe "operator specificity"
+        [ test "right pizza does not match other pipelines" <|
+            \() ->
+                allPipelines
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> baz""" ]
+        , test "left pizza does not match other pipelines" <|
+            \() ->
+                allPipelines
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo <| bar <| baz""" ]
+        , test "right composition does not match other pipelines" <|
+            \() ->
+                allPipelines
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightCompositionPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo >> bar >> baz""" ]
+        , test "left composition does not match other pipelines" <|
+            \() ->
+                allPipelines
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftCompositionPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo << bar << baz""" ]
+        , test "parenthetical application does not match other pipelines" <|
+            \() ->
+                allPipelines
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo (bar (baz (i (j k))))""" ]
+        ]
+
+
+recoveryTests : Test
+recoveryTests =
+    describe "recovers from checking things that aren't pipelines"
+        [ test "operator application" <|
             \() ->
                 """module A exposing (..)
-a = 1
+
+a =
+    10 + (5 - (foo |> bar |> baz))
 """
-                    |> Review.Test.run rule
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo |> bar |> baz" ]
+        , test "application" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo baz (i |> j |> k) baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "i |> j |> k" ]
+        ]
+
+
+defaultErrorTest : Test
+defaultErrorTest =
+    test "right pizza does not match other pipelines" <|
+        \() ->
+            """module A exposing (..)
+a = foo |> bar
+"""
+                |> Review.Test.run
+                    (rule [ forbid rightPizzaPipelines ])
+                |> Review.Test.expectErrors
+                    [ Review.Test.error
+                        { message = "Forbidden pipeline style"
+                        , details =
+                            [ "This pipeline is stylistically-invalid by one of the rules specified in your elm-review config."
+                            , "This is the default error message, so if you're unsure why you're seeing it, you should really use ReviewPipelineStyles.byReportingError to provide a more descriptive one!"
+                            ]
+                        , under = """foo |> bar"""
+                        }
+                    ]
+
+
+ruleHierarchyTests : Test
+ruleHierarchyTests =
+    describe "rule hierarchy"
+        [ test "first rule is the one that is reported" <|
+            \() ->
+                """module A exposing (..)
+a = foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> byReportingError "Rule A" [ "Rule A" ]
+                            , forbid rightPizzaPipelines
+                                |> byReportingError "Rule B" [ "Rule B" ]
+                            ]
+                        )
                     |> Review.Test.expectErrors
                         [ Review.Test.error
-                            { message = "REPLACEME"
-                            , details = [ "REPLACEME" ]
-                            , under = "REPLACEME"
+                            { message = "Rule A"
+                            , details =
+                                [ "Rule A"
+                                ]
+                            , under = """foo |> bar"""
+                            }
+                        ]
+        , test "first rule is the one that is reported 2" <|
+            \() ->
+                """module A exposing (..)
+a = foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> byReportingError "Rule B" [ "Rule B" ]
+                            , forbid rightPizzaPipelines
+                                |> byReportingError "Rule A" [ "Rule A" ]
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ Review.Test.error
+                            { message = "Rule B"
+                            , details =
+                                [ "Rule B"
+                                ]
+                            , under = """foo |> bar"""
                             }
                         ]
         ]
+
+
+multilineTests : Test
+multilineTests =
+    describe "multiline"
+        [ test "single line are single line" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz |> i |> j |> k
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (are multiline)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectNoErrors
+        , test "multi line are multi line" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+    |> i |> j |> k
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (are multiline)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> baz
+    |> i |> j |> k""" ]
+        ]
+
+
+lengthTests : Test
+lengthTests =
+    describe "length"
+        [ test "longerThan" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+    |> i |> j |> k
+b =
+    foo |> bar |> baz |> i |> j
+c =
+    foo |> bar |> baz |> i
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (are (longerThan 3))
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> baz
+    |> i |> j |> k""", expectFail """foo |> bar |> baz |> i |> j""" ]
+        , test "shorterThan" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+    |> i
+    |> j |> k
+b =
+    foo |> bar |> baz
+    |> i |> j
+c =
+    foo |> bar |> baz |> i
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (are (shorterThan 5))
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> baz |> i""", expectFail """foo |> bar |> baz
+    |> i |> j""" ]
+        ]
+
+
+fail : PipelineRule { r | hasNoError : () } -> PipelineRule { r | hasError : () }
+fail =
+    byReportingError "Fail" [ "Fail" ]
+
+
+expectFail : String -> Review.Test.ExpectedError
+expectFail under =
+    Review.Test.error { message = "Fail", details = [ "Fail" ], under = under }
