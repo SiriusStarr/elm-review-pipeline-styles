@@ -4,7 +4,7 @@ module ReviewPipelineStyles exposing
     , byReportingError
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
     , and, or, doNot
-    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan
+    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf
     , Pipeline
     , Predicate, Operator
     )
@@ -36,7 +36,7 @@ module ReviewPipelineStyles exposing
 
 ## Predicates
 
-@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan
+@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf
 
 
 ## Manual Predicates
@@ -430,6 +430,189 @@ ruleToFilter (PipelineRule { forbidden, except, operator, error }) pipeline =
 -}
 type alias Filter =
     Pipeline -> Maybe (List (Error {}))
+
+
+{-| Determine whether the pipeline has a simple input or not. This is somewhat
+subjective, of course, so use [`haveAnInputOf`](#haveAnInputOf) if you want to customize its
+behavior. A pipeline is considered to have a simple input if its input is **40
+characters or less**, is only a **single line**, and also:
+
+Is one of the following:
+
+    -- Unit
+    ()
+        |> foo
+
+    -- Name
+    a
+        |> foo
+
+    -- Prefix operator
+    (+)
+        |> foo
+
+    -- Int literal
+    1
+        |> foo
+
+    -- Hex literal
+    0x0F
+        |> foo
+
+    -- Float literal
+    1.5
+        |> foo
+
+    -- String literal
+    "bar"
+        |> foo
+
+    -- Char literal
+    'c'
+        |> foo
+
+    -- Record access function
+    .field
+        |> foo
+
+or is one of the following where all subexpressions are simple:
+
+    -- Tuple
+    ( a, "b" )
+        |> foo
+
+    -- Record
+    { a = "value" }
+        |> foo
+
+    -- List
+    []
+        |> foo
+
+    -- Record access
+    a.field
+        |> foo
+
+    -- Negation
+    elmFormatWontLetThisBeAnExample
+        |> foo
+
+    -- Parentheses
+    elmFormatWontLetThisBeAnExample
+        |> foo
+
+-}
+haveASimpleInput : Predicate
+haveASimpleInput =
+    let
+        go : Node Expression -> Bool
+        go e =
+            let
+                range : Range
+                range =
+                    Node.range e
+
+                singleLine : Bool
+                singleLine =
+                    range.end.row == range.start.row
+
+                short : Bool
+                short =
+                    range.end.column - range.start.column <= 40
+            in
+            singleLine
+                && short
+                && (case Node.value e of
+                        UnitExpr ->
+                            True
+
+                        FunctionOrValue _ _ ->
+                            True
+
+                        PrefixOperator _ ->
+                            True
+
+                        Operator _ ->
+                            True
+
+                        Integer _ ->
+                            True
+
+                        Hex _ ->
+                            True
+
+                        Floatable _ ->
+                            True
+
+                        Literal _ ->
+                            True
+
+                        CharLiteral _ ->
+                            True
+
+                        RecordAccessFunction _ ->
+                            True
+
+                        TupledExpression es ->
+                            List.all go es
+
+                        RecordExpr rs ->
+                            List.all (go << Tuple.second << Node.value) rs
+
+                        ListExpr es ->
+                            List.all go es
+
+                        Negation e_ ->
+                            go e_
+
+                        ParenthesizedExpression e_ ->
+                            go e_
+
+                        RecordAccess e_ _ ->
+                            go e_
+
+                        RecordUpdateExpression _ _ ->
+                            False
+
+                        Application _ ->
+                            False
+
+                        OperatorApplication _ _ _ _ ->
+                            False
+
+                        IfBlock _ _ _ ->
+                            False
+
+                        LetExpression _ ->
+                            False
+
+                        CaseExpression _ ->
+                            False
+
+                        LambdaExpression _ ->
+                            False
+
+                        GLSLExpression _ ->
+                            False
+                   )
+    in
+    Predicate <|
+        \{ steps } ->
+            List.head steps
+                |> Maybe.map go
+                |> Maybe.withDefault False
+
+
+{-| Like [`haveASimpleInput`](#haveASimpleInput) but with a user-providable
+function to check if an expression is simple.
+-}
+haveAnInputOf : (Node Expression -> Bool) -> Predicate
+haveAnInputOf pred =
+    Predicate <|
+        \{ steps } ->
+            List.head steps
+                |> Maybe.map pred
+                |> Maybe.withDefault False
 
 
 {-| Visit function TLDs and pass their expression to `expressionVisitor`.
