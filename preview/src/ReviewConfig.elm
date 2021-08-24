@@ -11,11 +11,14 @@ when inside the directory containing this file.
 
 -}
 
-import ReviewPipelineStyles
 import Review.Rule exposing (Rule)
+import ReviewPipelineStyles
 
 
 config : List Rule
 config =
     [ ReviewPipelineStyles.rule
+        [ ReviewPipelineStyles.forbid ReviewPipelineStyles.leftPizzaPipelines
+            |> ReviewPipelineStyles.byReportingError "No left pizza!" [ "Left pizza <| pipelines have been forbidden." ]
+        ]
     ]
