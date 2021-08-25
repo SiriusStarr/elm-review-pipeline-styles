@@ -309,7 +309,7 @@ without a fix. If you don't pass any error to a `PipelineRule`, you will get a
 generic error message that isn't very helpful, so you should always specify an
 error!
 -}
-byReportingError : String -> List String -> PipelineRule { r | hasNoError : () } -> PipelineRule { r | hasError : () }
+byReportingError : String -> List String -> PipelineRule r -> PipelineRule r
 byReportingError message details (PipelineRule r) =
     PipelineRule { r | error = Just <| Fail { message = message, details = details } }
 
@@ -320,10 +320,28 @@ byReportingError message details (PipelineRule r) =
         |> that spanMultipleLines
         |> exceptThoseThat (haveMoreStepsThan 5)
 
+Note that if `exceptThoseThat` is used multiple times, it is equivalent to using
+[`or`](#or). For example, the following two rules are equivalent:
+
+    forbid leftPizzaPipelines
+        |> exceptThoseThat
+            (doNot spanMultipleLines
+                |> or (haveFewerStepsThan 2)
+            )
+
+    forbid rightPizzaPipelines
+        |> exceptThoseThat (doNot spanMultipleLines)
+        |> exceptThoseThat (haveFewerStepsThan 2)
+
 -}
-exceptThoseThat : Predicate -> PipelineRule { r | hasNoException : () } -> PipelineRule { r | hasException : () }
+exceptThoseThat : Predicate -> PipelineRule r -> PipelineRule r
 exceptThoseThat p (PipelineRule r) =
-    PipelineRule { r | except = Just p }
+    case r.except of
+        Nothing ->
+            PipelineRule { r | except = Just p }
+
+        Just p_ ->
+            PipelineRule { r | except = Just <| or p p_ }
 
 
 {-| Limit (blacklist) forbidden pipelines to those that match a specific
@@ -332,10 +350,28 @@ predicate.
     forbid rightPizzaPipelines
         |> that spanMultipleLines
 
+Note that if `that` is used multiple times, it is equivalent to using
+[`or`](#or). For example, the following two rules are equivalent:
+
+    forbid rightPizzaPipelines
+        |> that
+            (spanMultipleLines
+                |> or (haveMoreStepsThan 5)
+            )
+
+    forbid rightPizzaPipelines
+        |> that spanMultipleLines
+        |> that (haveMoreStepsThan 5)
+
 -}
-that : Predicate -> PipelineRule { r | hasNoLimit : () } -> PipelineRule { r | hasLimit : () }
+that : Predicate -> PipelineRule r -> PipelineRule r
 that p (PipelineRule r) =
-    PipelineRule { r | forbidden = Just p }
+    case r.forbidden of
+        Nothing ->
+            PipelineRule { r | forbidden = Just p }
+
+        Just p_ ->
+            PipelineRule { r | forbidden = Just <| or p p_ }
 
 
 {-| Checks whether or not a pipeline spans multiple lines of code.

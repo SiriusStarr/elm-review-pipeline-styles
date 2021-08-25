@@ -6,8 +6,10 @@ import Review.Test
 import ReviewPipelineStyles
     exposing
         ( PipelineRule
+        , and
         , byReportingError
         , doNot
+        , exceptThoseThat
         , forbid
         , haveASimpleInput
         , haveAnInputOf
@@ -15,6 +17,7 @@ import ReviewPipelineStyles
         , haveMoreStepsThan
         , leftCompositionPipelines
         , leftPizzaPipelines
+        , or
         , parentheticalApplicationPipelines
         , rightCompositionPipelines
         , rightPizzaPipelines
@@ -32,6 +35,7 @@ all =
         , recoveryTests
         , defaultErrorTests
         , ruleHierarchyTests
+        , predicateCombinationTests
         , spanMultipleLinesTests
         , lengthTests
         , haveASimpleInputTests
@@ -231,6 +235,173 @@ a = foo |> bar
                             , under = """foo |> bar"""
                             }
                         ]
+        ]
+
+
+predicateCombinationTests : Test
+predicateCombinationTests =
+    describe "predicate combination"
+        [ test "blacklist works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveMoreStepsThan 1)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo |> bar |> baz" ]
+        , test "whitelist works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> exceptThoseThat (haveFewerStepsThan 2)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo |> bar |> baz" ]
+        , test "doNot works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+    |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (doNot spanMultipleLines)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo |> bar |> baz" ]
+        , test "and works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+    |> baz
+c = foo
+    |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that
+                                    (haveMoreStepsThan 1
+                                        |> and spanMultipleLines
+                                    )
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar
+    |> baz""" ]
+        , test "or works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+    |> baz
+c = foo
+    |> bar
+d = foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that
+                                    (haveMoreStepsThan 1
+                                        |> or spanMultipleLines
+                                    )
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar
+    |> baz"""
+                        , expectFail """foo |> bar |> baz"""
+                        , expectFail """foo
+    |> bar"""
+                        ]
+        , test "that works as or" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+    |> baz
+c = foo
+    |> bar
+d = foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveMoreStepsThan 1)
+                                |> that spanMultipleLines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar
+    |> baz"""
+                        , expectFail """foo |> bar |> baz"""
+                        , expectFail """foo
+    |> bar"""
+                        ]
+        , test "exceptThoseThat works as or" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> baz
+b =
+    foo |> bar
+    |> baz
+c = foo
+    |> bar
+d = a |> b
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> exceptThoseThat (haveMoreStepsThan 1)
+                                |> exceptThoseThat spanMultipleLines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a |> b""" ]
         ]
 
 
@@ -493,7 +664,7 @@ e2 =
                     ]
 
 
-fail : PipelineRule { r | hasNoError : () } -> PipelineRule { r | hasError : () }
+fail : PipelineRule r -> PipelineRule r
 fail =
     byReportingError "Fail" [ "Fail" ]
 
