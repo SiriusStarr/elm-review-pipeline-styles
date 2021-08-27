@@ -6,14 +6,21 @@ import Review.Test
 import ReviewPipelineStyles
     exposing
         ( PipelineRule
+        , aDataStructure
+        , aFlowControlStructure
+        , aLambdaFunction
+        , aLetBlock
         , and
         , byReportingError
         , doNot
         , exceptThoseThat
         , forbid
+        , haveAParent
+        , haveAParentNotSeparatedBy
         , haveASimpleInput
         , haveAnInputOf
         , haveFewerStepsThan
+        , haveMoreNestedParentsThan
         , haveMoreStepsThan
         , leftCompositionPipelines
         , leftPizzaPipelines
@@ -40,6 +47,8 @@ all =
         , lengthTests
         , haveASimpleInputTests
         , haveAnInputOfTests
+        , subpipelineTests
+        , nestingTests
         ]
 
 
@@ -662,6 +671,228 @@ e2 =
                     , expectFail """117 >> bar >> baz"""
                     , expectFail """foo (bar (baz (i (117))))"""
                     ]
+
+
+subpipelineTests : Test
+subpipelineTests =
+    describe "subpipeline tests"
+        [ test "gets nested pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo |> bar (a <| (b (i (j k))) <| c) |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveMoreStepsThan 1)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar (a <| (b (i (j k))) <| c) |> baz"""
+                        , expectFail """a <| (b (i (j k))) <| c"""
+                        , expectFail """b (i (j k))"""
+                        ]
+        ]
+
+
+nestingTests : Test
+nestingTests =
+    describe "nesting predicates"
+        [ test "haveAParent" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo |> bar (a <| (b (i (j k))) <| c) |> baz
+b = x <| y <| z
+c = x (y (z t))
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that haveAParent
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that
+                                    (haveAParent
+                                        |> and (haveMoreStepsThan 1)
+                                    )
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| (b (i (j k))) <| c"""
+                        , expectFail """b (i (j k))"""
+                        ]
+        , test "haveMoreNestedParentsThan" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo |> bar (a <| (b (i (j k))) <| c) |> baz
+b = x <| y <| z
+c = x (y (z t))
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveMoreNestedParentsThan 2)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveMoreNestedParentsThan 1)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """b (i (j k))""" ]
+        , test "haveAParentNotSeparatedBy nothing" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo |> bar |> (a <| b <| c) |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAParentNotSeparatedBy [])
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| b <| c""" ]
+        , test "haveAParentNotSeparatedBy a let block" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> (a <| b <| c)
+        |> (let
+                x =
+                    5
+            in
+            i <| j <| k
+           )
+        |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAParentNotSeparatedBy [ aLetBlock ])
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| b <| c""" ]
+        , test "haveAParentNotSeparatedBy a lambda function" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> (a <| b <| c)
+        |> (\\x -> i <| j <| k x )
+        |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAParentNotSeparatedBy [ aLambdaFunction ])
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| b <| c""" ]
+        , test "haveAParentNotSeparatedBy flow control" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> (a <| b <| c)
+        |> (if x then
+                i <| j <| k
+
+            else
+                y
+           )
+        |> (case x of
+                True ->
+                    i <| j <| k
+
+                False ->
+                    y
+           )
+        |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAParentNotSeparatedBy [ aFlowControlStructure ])
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| b <| c""" ]
+        , test "haveAParentNotSeparatedBy a data structure" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> (a <| b <| c)
+        |> f (i <| j <| k, y)
+        |> x [y, i <| j <| k]
+        |> b {field = i <| j <| k}
+        |> b {r | field = i <| j <| k}
+        |> {field = i <| j <| k, f = f}.f
+        |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAParentNotSeparatedBy [ aDataStructure ])
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| b <| c""" ]
+        , test "haveAParentNotSeparatedBy can deal with multiple degrees of nesting" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> (a <| b <| c)
+        |> (\\f -> ( i <| j <| k, y ))
+        |> (if x then
+                [ y, i <| j <| k ]
+
+            else
+                [ y ]
+           )
+        |> (let
+                x =
+                    { field = i <| j <| k }
+            in
+            x
+           )
+        |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAParentNotSeparatedBy [ aDataStructure ])
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """a <| b <| c""" ]
+        ]
 
 
 fail : PipelineRule r -> PipelineRule r

@@ -5,8 +5,9 @@ module ReviewPipelineStyles exposing
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
     , and, or, doNot
     , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf
+    , haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
     , Pipeline
-    , Predicate, Operator
+    , Predicate, Operator, NestedWithin
     )
 
 {-|
@@ -39,6 +40,11 @@ module ReviewPipelineStyles exposing
 @docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf
 
 
+## Nesting Predicates
+
+@docs haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
+
+
 ## Manual Predicates
 
 If you need predicates beyond what is provided above, you can create them
@@ -52,7 +58,7 @@ manually by simply writing a function of type `Pipeline -> Bool`.
 These are exposed only for the sake of type annotations; you shouldn't need to
 work with them directly.
 
-@docs Predicate, Operator
+@docs Predicate, Operator, NestedWithin
 
 -}
 
@@ -201,7 +207,27 @@ type alias Pipeline =
     { operator : Operator
     , steps : List (Node Expression)
     , node : Node Expression
+    , parents : List ( Operator, NestedWithin )
     }
+
+
+{-| The degree to which a parent or child is removed from a pipeline.
+
+  - `ALambdaFunction` -- The pipeline is within a lambda function within the other.
+  - `AFlowControlStructure` -- The pipeline is within an `if` or `case` block within
+    the other.
+  - `ADataStructure` -- The pipeline is within a tuple, list, or record
+    within the other (note that this includes record updates).
+  - `ALetBlock` -- The pipeline is within a `let` block within the other.
+
+-}
+type NestedWithin
+    = NestedWithin
+        { aLambdaFunction : Bool
+        , aFlowControlStructure : Bool
+        , aDataStructure : Bool
+        , aLetBlock : Bool
+        }
 
 
 {-| A predicate for filtering pipelines, or a logical combination of them.
@@ -416,6 +442,73 @@ has length **2** for the purposes of this predicate.
 haveFewerStepsThan : Int -> Predicate
 haveFewerStepsThan i =
     Predicate <| \{ steps } -> List.length steps < i + 1
+
+
+{-| Checks whether the pipeline is nested to any degree within another pipeline.
+Note that this is quite a strict requirement and you probably want to use one of
+the other nesting predicates instead.
+-}
+haveAParent : Predicate
+haveAParent =
+    Predicate <|
+        \{ parents } ->
+            not <| List.isEmpty parents
+
+
+{-| Checks whether the pipeline is nested to a greater degree than specified
+within other pipelines. For example, `haveMoreNestedParentsThan 1` will forbid
+
+    a =
+        foo
+            |> (bar <| (a |> b |> c))
+            |> baz
+
+-}
+haveMoreNestedParentsThan : Int -> Predicate
+haveMoreNestedParentsThan n =
+    Predicate <| \{ parents } -> List.length parents > n
+
+
+{-| Checks whether the immediate parent of a pipeline (if one exists) is not
+separated by one of a list of [`acceptable abstractions`](#NestedWithin).
+-}
+haveAParentNotSeparatedBy : List (NestedWithin -> Bool) -> Predicate
+haveAParentNotSeparatedBy ls =
+    Predicate <|
+        .parents
+            >> List.head
+            >> MaybeX.unwrap True (\( _, n ) -> List.any (\f -> f n) ls)
+            >> not
+
+
+{-| Either within a `let` declaration or in the `let` expression of a `let`
+block from the surrounding pipeline.
+-}
+aLetBlock : NestedWithin -> Bool
+aLetBlock (NestedWithin r) =
+    r.aLetBlock
+
+
+{-| Within a lambda function in the surrounding pipeline.
+-}
+aLambdaFunction : NestedWithin -> Bool
+aLambdaFunction (NestedWithin r) =
+    r.aLambdaFunction
+
+
+{-| Within a `case` expression of `if...then` expression in the surrounding
+pipeline.
+-}
+aFlowControlStructure : NestedWithin -> Bool
+aFlowControlStructure (NestedWithin r) =
+    r.aFlowControlStructure
+
+
+{-| Within a tuple, list, or record in the surrounding pipeline.
+-}
+aDataStructure : NestedWithin -> Bool
+aDataStructure (NestedWithin r) =
+    r.aDataStructure
 
 
 {-| Create a `Predicate` that matches pipelines that match both of two
@@ -659,7 +752,9 @@ declarationVisitor filters d =
         Declaration.FunctionDeclaration { declaration } ->
             Node.value declaration
                 |> .expression
-                |> expressionVisitor filters
+                |> descendToPipelines []
+                |> List.filterMap (MaybeX.oneOf filters)
+                |> List.concat
 
         _ ->
             -- No pipelines in any of:
@@ -671,37 +766,50 @@ declarationVisitor filters d =
             []
 
 
-{-| Visit the TLD of an expression and descend until a pipeline is found, at
-which point check it for errors.
+{-| Given a list of parent pipelines and an expression node, check for child
+pipelines within that node, descending as necessary.
 -}
-expressionVisitor : List Filter -> Node Expression -> List (Error {})
-expressionVisitor filters node =
+descendToPipelines : List ( Operator, NestedWithin ) -> Node Expression -> List Pipeline
+descendToPipelines parents node =
     let
-        go : Node Expression -> List (Error {})
+        go : Node Expression -> List Pipeline
         go =
-            expressionVisitor filters
+            descendToPipelines parents
+
+        goIn : (NestedWithin -> NestedWithin) -> Node Expression -> List Pipeline
+        goIn f =
+            case List.head parents of
+                Just ( op, n ) ->
+                    descendToPipelines (( op, f n ) :: List.drop 1 parents)
+
+                _ ->
+                    go
+
+        flowControl : NestedWithin -> NestedWithin
+        flowControl (NestedWithin r) =
+            NestedWithin { r | aFlowControlStructure = True }
+
+        dataStructure : NestedWithin -> NestedWithin
+        dataStructure (NestedWithin r) =
+            NestedWithin { r | aDataStructure = True }
+
+        letBlock : NestedWithin -> NestedWithin
+        letBlock (NestedWithin r) =
+            NestedWithin { r | aLetBlock = True }
+
+        lambdaFunction : NestedWithin -> NestedWithin
+        lambdaFunction (NestedWithin r) =
+            NestedWithin { r | aLambdaFunction = True }
     in
     case Node.value node of
         OperatorApplication op dir left right ->
-            case getPipeline node op dir left right of
-                Just p ->
-                    MaybeX.oneOf filters p
-                        |> Maybe.withDefault []
-
-                Nothing ->
-                    -- If it's not the start of a pipeline, just descend
-                    go left ++ go right
+            getPipeline parents node op dir left right
+                |> Maybe.withDefault (go left ++ go right)
 
         Application es ->
             -- Application might be the start of a parenthetical application pipeline
-            case getParentheticalPipeline node of
-                Just p ->
-                    MaybeX.oneOf filters p
-                        |> Maybe.withDefault []
-
-                Nothing ->
-                    -- If it's not the start of a pipeline, just descend
-                    List.concatMap go es
+            getParentheticalPipeline parents node
+                |> Maybe.withDefault (List.concatMap go es)
 
         -- Descend into subexpression until we encounter a pipeline
         ParenthesizedExpression e ->
@@ -711,44 +819,44 @@ expressionVisitor filters node =
             go e
 
         CaseExpression { expression, cases } ->
-            go expression ++ List.concatMap (go << Tuple.second) cases
+            goIn flowControl expression ++ List.concatMap (goIn flowControl << Tuple.second) cases
 
         IfBlock predE thenE elseE ->
-            List.concatMap go [ predE, thenE, elseE ]
+            List.concatMap (goIn flowControl) [ predE, thenE, elseE ]
 
         TupledExpression es ->
-            List.concatMap go es
+            List.concatMap (goIn dataStructure) es
 
         LetExpression { declarations, expression } ->
             let
-                goLetDecl : Node LetDeclaration -> List (Error {})
+                goLetDecl : Node LetDeclaration -> List Pipeline
                 goLetDecl d =
                     case Node.value d of
                         LetFunction { declaration } ->
                             Node.value declaration
                                 |> .expression
-                                |> go
+                                |> goIn letBlock
 
                         LetDestructuring _ e ->
-                            go e
+                            goIn letBlock e
             in
-            go expression
+            goIn letBlock expression
                 ++ List.concatMap goLetDecl declarations
 
         LambdaExpression { expression } ->
-            go expression
+            goIn lambdaFunction expression
 
         RecordExpr rs ->
-            List.concatMap (go << Tuple.second << Node.value) rs
+            List.concatMap (goIn dataStructure << Tuple.second << Node.value) rs
 
         ListExpr es ->
-            List.concatMap go es
+            List.concatMap (goIn dataStructure) es
 
         RecordAccess e _ ->
             go e
 
         RecordUpdateExpression _ rs ->
-            List.concatMap (go << Tuple.second << Node.value) rs
+            List.concatMap (goIn dataStructure << Tuple.second << Node.value) rs
 
         _ ->
             -- Cannot descend into
@@ -766,10 +874,11 @@ expressionVisitor filters node =
             []
 
 
-{-| Get a pipeline from an operator application or fail if it's not a pipeline.
+{-| Given a list of parent pipelines, get a pipeline from an operator
+application or fail if it's not a pipeline.
 -}
-getPipeline : Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe Pipeline
-getPipeline node op dir left right =
+getPipeline : List ( Operator, NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
+getPipeline parents node op dir left right =
     let
         go : Node Expression -> ( Node Expression, List (Node Expression) )
         go e =
@@ -792,9 +901,28 @@ getPipeline node op dir left right =
                     -- Pipeline ended
                     ( e, [] )
 
-        makePipeline : Operator -> List (Node Expression) -> Pipeline
+        makePipeline : Operator -> List (Node Expression) -> List Pipeline
         makePipeline operator steps =
-            { operator = operator, steps = steps, node = node }
+            List.concatMap
+                (descendToPipelines
+                    (( operator
+                     , NestedWithin
+                        { aLambdaFunction = False
+                        , aFlowControlStructure = False
+                        , aDataStructure = False
+                        , aLetBlock = False
+                        }
+                     )
+                        :: parents
+                    )
+                )
+                steps
+                |> (::)
+                    { operator = operator
+                    , steps = steps
+                    , node = node
+                    , parents = parents
+                    }
     in
     case ( op, dir ) of
         ( "|>", Left ) ->
@@ -839,8 +967,11 @@ getPipeline node op dir left right =
             Nothing
 
 
-getParentheticalPipeline : Node Expression -> Maybe Pipeline
-getParentheticalPipeline node =
+{-| Given a list of parent pipelines, get a parenthetical application pipeline
+from an `Application` node or fail.
+-}
+getParentheticalPipeline : List ( Operator, NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
+getParentheticalPipeline parents node =
     let
         go : Node Expression -> ( Node Expression, List (Node Expression) )
         go e =
@@ -881,7 +1012,28 @@ getParentheticalPipeline node =
 
         ( input, steps ) ->
             (input :: List.reverse steps)
-                |> (\allSteps -> { operator = ParentheticalApplication, steps = allSteps, node = node })
+                |> (\allSteps ->
+                        List.concatMap
+                            (descendToPipelines
+                                (( ParentheticalApplication
+                                 , NestedWithin
+                                    { aDataStructure = False
+                                    , aFlowControlStructure = False
+                                    , aLetBlock = False
+                                    , aLambdaFunction = False
+                                    }
+                                 )
+                                    :: parents
+                                )
+                            )
+                            allSteps
+                            |> (::)
+                                { operator = ParentheticalApplication
+                                , steps = allSteps
+                                , node = node
+                                , parents = parents
+                                }
+                   )
                 |> Just
 
 
