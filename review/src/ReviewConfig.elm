@@ -58,5 +58,7 @@ config =
     , NoUnused.Patterns.rule
     , NoUnused.Variables.rule
     , Simplify.rule Simplify.defaults
+        -- Ignore use of `identity` in generated code
+        |> Rule.ignoreErrorsForDirectories [ "tests/Dependencies"]
     , CognitiveComplexity.rule 10
     ]

@@ -4,7 +4,7 @@ module ReviewPipelineStyles exposing
     , byReportingError
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
     , and, or, doNot
-    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf
+    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf, separateATestFromItsLambda
     , haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
     , Pipeline
     , Predicate, Operator, NestedWithin
@@ -37,7 +37,7 @@ module ReviewPipelineStyles exposing
 
 ## Predicates
 
-@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf
+@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf, separateATestFromItsLambda
 
 
 ## Nesting Predicates
@@ -69,6 +69,7 @@ import Elm.Syntax.Node as Node exposing (Node(..))
 import Elm.Syntax.Range as Range exposing (Range)
 import List.Extra as ListX
 import Maybe.Extra as MaybeX
+import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable, moduleNameFor)
 import Review.Rule as Rule exposing (Error, Rule)
 import String exposing (right)
 
@@ -157,9 +158,24 @@ elm-review --template SiriusStarr/elm-review-pipeline-styles/example --rules Rev
 -}
 rule : List (PipelineRule r) -> Rule
 rule rules =
-    Rule.newModuleRuleSchema "ReviewPipelineStyles" ()
-        |> Rule.withSimpleDeclarationVisitor (declarationVisitor <| List.map ruleToFilter rules)
+    Rule.newModuleRuleSchemaUsingContextCreator "ReviewPipelineStyles" initialContext
+        |> Rule.withDeclarationEnterVisitor (\d context -> ( declarationVisitor (List.map (ruleToFilter context) rules) d, context ))
         |> Rule.fromModuleRuleSchema
+
+
+{-| Create the initial context for the rule.
+-}
+initialContext : Rule.ContextCreator () Context
+initialContext =
+    Rule.initContextCreator
+        (\lookupTable () -> { lookupTable = lookupTable })
+        |> Rule.withModuleNameLookupTable
+
+
+{-| Context for the declaration visitor.
+-}
+type alias Context =
+    { lookupTable : ModuleNameLookupTable }
 
 
 {-| Configuration of this rule is in the form of a list of `PipelineRule`s. It
@@ -233,7 +249,7 @@ type NestedWithin
 {-| A predicate for filtering pipelines, or a logical combination of them.
 -}
 type Predicate
-    = Predicate (Pipeline -> Bool)
+    = Predicate (ModuleNameLookupTable -> Pipeline -> Bool)
 
 
 {-| The operator type of a pipeline.
@@ -405,7 +421,7 @@ that p (PipelineRule r) =
 spanMultipleLines : Predicate
 spanMultipleLines =
     Predicate <|
-        \{ node } ->
+        \_ { node } ->
             let
                 range : Range
                 range =
@@ -426,7 +442,7 @@ has length **2** for the purposes of this predicate.
 -}
 haveMoreStepsThan : Int -> Predicate
 haveMoreStepsThan i =
-    Predicate <| \{ steps } -> List.length steps > i + 1
+    Predicate <| \_ { steps } -> List.length steps > i + 1
 
 
 {-| Checks whether the length of a pipeline is less than a specified number.
@@ -441,7 +457,7 @@ has length **2** for the purposes of this predicate.
 -}
 haveFewerStepsThan : Int -> Predicate
 haveFewerStepsThan i =
-    Predicate <| \{ steps } -> List.length steps < i + 1
+    Predicate <| \_ { steps } -> List.length steps < i + 1
 
 
 {-| Checks whether the pipeline is nested to any degree within another pipeline.
@@ -451,7 +467,7 @@ the other nesting predicates instead.
 haveAParent : Predicate
 haveAParent =
     Predicate <|
-        \{ parents } ->
+        \_ { parents } ->
             not <| List.isEmpty parents
 
 
@@ -466,7 +482,7 @@ within other pipelines. For example, `haveMoreNestedParentsThan 1` will forbid
 -}
 haveMoreNestedParentsThan : Int -> Predicate
 haveMoreNestedParentsThan n =
-    Predicate <| \{ parents } -> List.length parents > n
+    Predicate <| \_ { parents } -> List.length parents > n
 
 
 {-| Checks whether the immediate parent of a pipeline (if one exists) is not
@@ -475,10 +491,10 @@ separated by one of a list of [`acceptable abstractions`](#NestedWithin).
 haveAParentNotSeparatedBy : List (NestedWithin -> Bool) -> Predicate
 haveAParentNotSeparatedBy ls =
     Predicate <|
-        .parents
-            >> List.head
-            >> MaybeX.unwrap True (\( _, n ) -> List.any (\f -> f n) ls)
-            >> not
+        \_ { parents } ->
+            List.head parents
+                |> MaybeX.unwrap True (\( _, n ) -> List.any (\f -> f n) ls)
+                |> not
 
 
 {-| Either within a `let` declaration or in the `let` expression of a `let`
@@ -511,12 +527,60 @@ aDataStructure (NestedWithin r) =
     r.aDataStructure
 
 
+{-| Checks if a left "pizza" (`<|`) operator is used in the "canonical" fashion
+in a test suite, to separate the lambda containing the test from the `test`.
+All of the following will "pass" this predicate, and all other `<|`'s will not:
+
+    import Test exposing (..)
+
+    suite =
+        describe "tests"
+            [ test "foo" <|
+                \() ->
+                    a
+            , fuzz fooFuzz "fuzz" <|
+                \foo ->
+                    a
+            , fuzz2 fooFuzz barFuzz "fuzz2" <|
+                \foo bar ->
+                    a
+            , fuzz3 fooFuzz barFuzz bazFuzz "fuzz3" <|
+                \foo bar baz ->
+                    a
+            , fuzzWith { runs = 117 } fooFuzz "fuzzWith" <|
+                \foo ->
+                    a
+
+-}
+separateATestFromItsLambda : Predicate
+separateATestFromItsLambda =
+    Predicate <|
+        \lookupTable { operator, steps } ->
+            case ( operator, List.map Node.value steps ) of
+                ( LeftPizza, [ LambdaExpression _, Application es ] ) ->
+                    List.head es
+                        |> Maybe.map
+                            (\h ->
+                                case ( Node.value h, moduleNameFor lookupTable h ) of
+                                    ( FunctionOrValue _ n, Just [ "Test" ] ) ->
+                                        List.member n [ "test", "fuzz", "fuzz2", "fuzz3", "fuzzWith" ]
+
+                                    _ ->
+                                        False
+                            )
+                        |> Maybe.withDefault False
+
+                _ ->
+                    -- Any other case isn't the "test" usage
+                    False
+
+
 {-| Create a `Predicate` that matches pipelines that match both of two
 predicates.
 -}
 and : Predicate -> Predicate -> Predicate
 and (Predicate p1) (Predicate p2) =
-    Predicate <| \p -> p1 p && p2 p
+    Predicate <| \l p -> p1 l p && p2 l p
 
 
 {-| Create a `Predicate` that matches pipelines that match either or both of two
@@ -524,25 +588,25 @@ predicates.
 -}
 or : Predicate -> Predicate -> Predicate
 or (Predicate p1) (Predicate p2) =
-    Predicate <| \p -> p1 p || p2 p
+    Predicate <| \l p -> p1 l p || p2 l p
 
 
 {-| Negate a `Predicate`.
 -}
 doNot : Predicate -> Predicate
-doNot (Predicate p) =
-    Predicate <| (not << p)
+doNot (Predicate pred) =
+    Predicate <| \l p -> not <| pred l p
 
 
 {-| Convert a single `PipelineRule`, as passed to the configuration, into a
 `Filter` that is actually useful for generating errors.
 -}
-ruleToFilter : PipelineRule r -> Filter
-ruleToFilter (PipelineRule { forbidden, except, operator, error }) pipeline =
+ruleToFilter : Context -> PipelineRule r -> Filter
+ruleToFilter { lookupTable } (PipelineRule { forbidden, except, operator, error }) pipeline =
     let
         matchesPredicate : Predicate -> Bool
         matchesPredicate (Predicate p) =
-            p pipeline
+            p lookupTable pipeline
     in
     if
         (operator == pipeline.operator)
@@ -726,7 +790,7 @@ haveASimpleInput =
                    )
     in
     Predicate <|
-        \{ steps } ->
+        \_ { steps } ->
             List.head steps
                 |> Maybe.map go
                 |> Maybe.withDefault False
@@ -738,7 +802,7 @@ function to check if an expression is simple.
 haveAnInputOf : (Node Expression -> Bool) -> Predicate
 haveAnInputOf pred =
     Predicate <|
-        \{ steps } ->
+        \_ { steps } ->
             List.head steps
                 |> Maybe.map pred
                 |> Maybe.withDefault False

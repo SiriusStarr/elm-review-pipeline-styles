@@ -1,8 +1,11 @@
 module ReviewPipelineStylesTest exposing (all)
 
+import Dependencies.ElmExplorationsTest
 import Elm.Syntax.Expression as Expression exposing (Expression)
 import Elm.Syntax.Node as Node exposing (Node)
+import Review.Project exposing (addDependency)
 import Review.Test
+import Review.Test.Dependencies exposing (projectWithElmCore)
 import ReviewPipelineStyles
     exposing
         ( PipelineRule
@@ -29,6 +32,7 @@ import ReviewPipelineStyles
         , rightCompositionPipelines
         , rightPizzaPipelines
         , rule
+        , separateATestFromItsLambda
         , spanMultipleLines
         , that
         )
@@ -49,6 +53,7 @@ all =
         , haveAnInputOfTests
         , subpipelineTests
         , nestingTests
+        , testUsageTests
         ]
 
 
@@ -892,6 +897,121 @@ a =
                         )
                     |> Review.Test.expectErrors
                         [ expectFail """a <| b <| c""" ]
+        ]
+
+
+testUsageTests : Test
+testUsageTests =
+    describe "separateATestFromItsLambda"
+        [ test "imported unqualified" <|
+            \() ->
+                """module A exposing (..)
+import Test exposing (..)
+
+suite =
+    describe "tests"
+        [ test "foo" <|
+            \\() ->
+                Expect.equal 0 (foo <| bar <| baz)
+        , fuzz fooFuzz "fuzz" <|
+            \\foo ->
+                Expect.equal 0 foo
+        , fuzz2 fooFuzz barFuzz "fuzz2" <|
+            \\foo bar ->
+                Expect.equal foo bar
+        , fuzz3 fooFuzz barFuzz bazFuzz "fuzz3" <|
+            \\foo bar baz ->
+                Expect.equal foo ( bar, baz )
+        , fuzzWith { runs = 117 } fooFuzz "fuzzWith" <|
+            \\foo ->
+                Expect.equal 0 foo
+        ]
+"""
+                    |> Review.Test.runWithProjectData
+                        (projectWithElmCore
+                            |> addDependency Dependencies.ElmExplorationsTest.dependency
+                        )
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> exceptThoseThat separateATestFromItsLambda
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo <| bar <| baz" ]
+        , test "qualified" <|
+            \() ->
+                """module A exposing (..)
+import Test
+
+suite =
+    describe "tests"
+        [ Test.test "foo" <|
+            \\() ->
+                Expect.equal 0 1
+        , fuzz fooFuzz "fuzz" <|
+            (\\foo ->
+                Expect.equal 0 foo)
+        , Test.fuzz2 fooFuzz barFuzz "fuzz2" <|
+            \\foo bar ->
+                Expect.equal foo bar
+        , fuzz3 fooFuzz barFuzz bazFuzz "fuzz3" <|
+            (\\foo bar baz ->
+                Expect.equal foo ( bar, baz ))
+        , fuzzWith { runs = 117 } fooFuzz "fuzzWith" <|
+            (\\foo ->
+                Expect.equal 0 foo)
+        ]
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> exceptThoseThat separateATestFromItsLambda
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """fuzz fooFuzz "fuzz" <|
+            (\\foo ->
+                Expect.equal 0 foo)"""
+                        , expectFail """fuzz3 fooFuzz barFuzz bazFuzz "fuzz3" <|
+            (\\foo bar baz ->
+                Expect.equal foo ( bar, baz ))"""
+                        , expectFail """fuzzWith { runs = 117 } fooFuzz "fuzzWith" <|
+            (\\foo ->
+                Expect.equal 0 foo)"""
+                        ]
+        , test "not actually the test cases" <|
+            \() ->
+                """module A exposing (..)
+
+suite =
+    describe "tests"
+        [ test "foo" <|
+            \\() ->
+                Expect.equal 0 (foo <| bar <| baz)
+        , fuzz fooFuzz "fuzz" <|
+            \\foo ->
+                Expect.equal 0 foo
+        , fuzz2 fooFuzz barFuzz "fuzz2" <|
+            \\foo bar ->
+                Expect.equal foo bar
+        , fuzz3 fooFuzz barFuzz bazFuzz "fuzz3" <|
+            \\foo bar baz ->
+                Expect.equal foo ( bar, baz )
+        , fuzzWith { runs = 117 } fooFuzz "fuzzWith" <|
+            \\foo ->
+                Expect.equal 0 foo
+        ]
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> exceptThoseThat (doNot separateATestFromItsLambda)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectNoErrors
         ]
 
 
