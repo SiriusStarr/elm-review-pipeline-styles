@@ -3,21 +3,33 @@ module ReviewPipelineStylesTest exposing (all)
 import Dependencies.ElmExplorationsTest
 import Elm.Syntax.Expression as Expression exposing (Expression)
 import Elm.Syntax.Node as Node exposing (Node)
+import Review.ModuleNameLookupTable exposing (moduleNameFor)
 import Review.Project exposing (addDependency)
 import Review.Test
 import Review.Test.Dependencies exposing (projectWithElmCore)
 import ReviewPipelineStyles
     exposing
         ( PipelineRule
-        , aDataStructure
+        , byReportingError
+        , exceptThoseThat
+        , forbid
+        , leftCompositionPipelines
+        , leftPizzaPipelines
+        , parentheticalApplicationPipelines
+        , rightCompositionPipelines
+        , rightPizzaPipelines
+        , rule
+        , that
+        )
+import ReviewPipelineStyles.Predicates
+    exposing
+        ( aDataStructure
         , aFlowControlStructure
         , aLambdaFunction
         , aLetBlock
         , and
-        , byReportingError
         , doNot
-        , exceptThoseThat
-        , forbid
+        , getSteps
         , haveAParent
         , haveAParentNotSeparatedBy
         , haveASimpleInput
@@ -25,16 +37,11 @@ import ReviewPipelineStyles
         , haveFewerStepsThan
         , haveMoreNestedParentsThan
         , haveMoreStepsThan
-        , leftCompositionPipelines
-        , leftPizzaPipelines
         , or
-        , parentheticalApplicationPipelines
-        , rightCompositionPipelines
-        , rightPizzaPipelines
-        , rule
+        , predicate
+        , predicateWithLookupTable
         , separateATestFromItsLambda
         , spanMultipleLines
-        , that
         )
 import Test exposing (Test, describe, test)
 
@@ -54,6 +61,7 @@ all =
         , subpipelineTests
         , nestingTests
         , testUsageTests
+        , customPredicateTests
         ]
 
 
@@ -1012,6 +1020,60 @@ suite =
                             ]
                         )
                     |> Review.Test.expectNoErrors
+        ]
+
+
+customPredicateTests : Test
+customPredicateTests =
+    describe "custom predicates"
+        [ test "predicate" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo |> bar |> baz
+b = foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that
+                                    (predicate
+                                        (\p ->
+                                            getSteps p
+                                                |> List.length
+                                                |> (==) 3
+                                        )
+                                    )
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> baz""" ]
+        , test "predicateWithLookupTable" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo |> bar |> baz
+b = A.foo |> bar
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that
+                                    (predicateWithLookupTable
+                                        (\table p ->
+                                            getSteps p
+                                                |> List.head
+                                                |> Maybe.andThen (moduleNameFor table)
+                                                |> Maybe.map ((==) [])
+                                                |> Maybe.withDefault False
+                                        )
+                                    )
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> baz""" ]
         ]
 
 

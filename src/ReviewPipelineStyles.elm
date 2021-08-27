@@ -3,11 +3,6 @@ module ReviewPipelineStyles exposing
     , PipelineRule, forbid, that, exceptThoseThat
     , byReportingError
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
-    , and, or, doNot
-    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf, separateATestFromItsLambda
-    , haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
-    , Pipeline
-    , Predicate, Operator, NestedWithin
     )
 
 {-|
@@ -29,48 +24,19 @@ module ReviewPipelineStyles exposing
 
 @docs rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
 
-
-## Creating Predicates
-
-@docs and, or, doNot
-
-
-## Predicates
-
-@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInput, haveAnInputOf, separateATestFromItsLambda
-
-
-## Nesting Predicates
-
-@docs haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
-
-
-## Manual Predicates
-
-If you need predicates beyond what is provided above, you can create them
-manually by simply writing a function of type `Pipeline -> Bool`.
-
-@docs Pipeline
-
-
-### Types
-
-These are exposed only for the sake of type annotations; you shouldn't need to
-work with them directly.
-
-@docs Predicate, Operator, NestedWithin
-
 -}
 
 import Elm.Syntax.Declaration as Declaration exposing (Declaration)
 import Elm.Syntax.Expression exposing (Expression(..), LetDeclaration(..))
 import Elm.Syntax.Infix exposing (InfixDirection(..))
 import Elm.Syntax.Node as Node exposing (Node(..))
-import Elm.Syntax.Range as Range exposing (Range)
+import Elm.Syntax.Range as Range
+import Internal.Types as Types exposing (NestedWithin(..), Pipeline)
 import List.Extra as ListX
 import Maybe.Extra as MaybeX
-import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable, moduleNameFor)
+import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import Review.Rule as Rule exposing (Error, Rule)
+import ReviewPipelineStyles.Predicates exposing (Operator, Predicate, or)
 import String exposing (right)
 
 
@@ -206,69 +172,6 @@ type PipelineRule a
         }
 
 
-{-| A detected pipeline. You only need be concerned with this type if you are
-writing a manual predicate. Note that the types contained within this are from
-[`stil4m/elm-syntax`](https://package.elm-lang.org/packages/stil4m/elm-syntax/7.2.7/)
-if you need to work with them directly.
-
-  - `operator`: The operator that was detected
-  - `steps`: The steps of the pipeline. Note that this is in "logical" order,
-    e.g. `a >> b >> c`, `c << b << a`, `a |> b |> c`, `c <| b <| a`, and
-    `c (b a)` will all have the same steps of `[a, b, c]`.
-  - `node`: The outermost `Node` of the pipeline; you probably don't need to
-    work with this directly.
-
--}
-type alias Pipeline =
-    { operator : Operator
-    , steps : List (Node Expression)
-    , node : Node Expression
-    , parents : List ( Operator, NestedWithin )
-    }
-
-
-{-| The degree to which a parent or child is removed from a pipeline.
-
-  - `ALambdaFunction` -- The pipeline is within a lambda function within the other.
-  - `AFlowControlStructure` -- The pipeline is within an `if` or `case` block within
-    the other.
-  - `ADataStructure` -- The pipeline is within a tuple, list, or record
-    within the other (note that this includes record updates).
-  - `ALetBlock` -- The pipeline is within a `let` block within the other.
-
--}
-type NestedWithin
-    = NestedWithin
-        { aLambdaFunction : Bool
-        , aFlowControlStructure : Bool
-        , aDataStructure : Bool
-        , aLetBlock : Bool
-        }
-
-
-{-| A predicate for filtering pipelines, or a logical combination of them.
--}
-type Predicate
-    = Predicate (ModuleNameLookupTable -> Pipeline -> Bool)
-
-
-{-| The operator type of a pipeline.
-
-  - `RightPizza` -- `|>`
-  - `LeftPizza` -- `<|`
-  - `RightComposition` -- `>>`
-  - `LeftComposition` -- `<<`
-  - `ParentheticalApplication` -- `foo (bar (baz (i (j k))))`
-
--}
-type Operator
-    = RightPizza
-    | LeftPizza
-    | RightComposition
-    | LeftComposition
-    | ParentheticalApplication
-
-
 {-| Specify the type of error to output for a failed pipeline.
 -}
 type PipelineError
@@ -285,7 +188,7 @@ example of this pipeline is below:
 -}
 rightPizzaPipelines : Operator
 rightPizzaPipelines =
-    RightPizza
+    Types.RightPizza
 
 
 {-| The left "pizza" operator is left function application, i.e. `<|`. An
@@ -296,7 +199,7 @@ example of this pipeline is below:
 -}
 leftPizzaPipelines : Operator
 leftPizzaPipelines =
-    LeftPizza
+    Types.LeftPizza
 
 
 {-| The right composition operator is right function composition, i.e. `>>`. An
@@ -309,7 +212,7 @@ example of this pipeline is below:
 -}
 rightCompositionPipelines : Operator
 rightCompositionPipelines =
-    RightComposition
+    Types.RightComposition
 
 
 {-| The left composition operator is left function composition, i.e. `<<`. An
@@ -320,7 +223,7 @@ example of this pipeline is below:
 -}
 leftCompositionPipelines : Operator
 leftCompositionPipelines =
-    LeftComposition
+    Types.LeftComposition
 
 
 {-| Parenthetical application is actually the absence of a pipeline, but rather
@@ -331,12 +234,12 @@ successive function calls using parentheses, e.g.
 -}
 parentheticalApplicationPipelines : Operator
 parentheticalApplicationPipelines =
-    ParentheticalApplication
+    Types.ParentheticalApplication
 
 
 {-| Forbid certain pipelines.
 -}
-forbid : Operator -> PipelineRule { hasNoLimit : (), hasNoException : (), hasNoError : () }
+forbid : Operator -> PipelineRule ()
 forbid o =
     PipelineRule
         { forbidden = Nothing
@@ -416,188 +319,6 @@ that p (PipelineRule r) =
             PipelineRule { r | forbidden = Just <| or p p_ }
 
 
-{-| Checks whether or not a pipeline spans multiple lines of code.
--}
-spanMultipleLines : Predicate
-spanMultipleLines =
-    Predicate <|
-        \_ { node } ->
-            let
-                range : Range
-                range =
-                    Node.range node
-            in
-            range.end.row > range.start.row
-
-
-{-| Checks whether the length of a pipeline is longer than a specified number.
-Note that the length of a pipeline is the number of operators in it, e.g.
-
-    foo
-        |> bar
-        |> baz
-
-has length **2** for the purposes of this predicate.
-
--}
-haveMoreStepsThan : Int -> Predicate
-haveMoreStepsThan i =
-    Predicate <| \_ { steps } -> List.length steps > i + 1
-
-
-{-| Checks whether the length of a pipeline is less than a specified number.
-Note that the length of a pipeline is the number of operators in it, e.g.
-
-    foo
-        |> bar
-        |> baz
-
-has length **2** for the purposes of this predicate.
-
--}
-haveFewerStepsThan : Int -> Predicate
-haveFewerStepsThan i =
-    Predicate <| \_ { steps } -> List.length steps < i + 1
-
-
-{-| Checks whether the pipeline is nested to any degree within another pipeline.
-Note that this is quite a strict requirement and you probably want to use one of
-the other nesting predicates instead.
--}
-haveAParent : Predicate
-haveAParent =
-    Predicate <|
-        \_ { parents } ->
-            not <| List.isEmpty parents
-
-
-{-| Checks whether the pipeline is nested to a greater degree than specified
-within other pipelines. For example, `haveMoreNestedParentsThan 1` will forbid
-
-    a =
-        foo
-            |> (bar <| (a |> b |> c))
-            |> baz
-
--}
-haveMoreNestedParentsThan : Int -> Predicate
-haveMoreNestedParentsThan n =
-    Predicate <| \_ { parents } -> List.length parents > n
-
-
-{-| Checks whether the immediate parent of a pipeline (if one exists) is not
-separated by one of a list of [`acceptable abstractions`](#NestedWithin).
--}
-haveAParentNotSeparatedBy : List (NestedWithin -> Bool) -> Predicate
-haveAParentNotSeparatedBy ls =
-    Predicate <|
-        \_ { parents } ->
-            List.head parents
-                |> MaybeX.unwrap True (\( _, n ) -> List.any (\f -> f n) ls)
-                |> not
-
-
-{-| Either within a `let` declaration or in the `let` expression of a `let`
-block from the surrounding pipeline.
--}
-aLetBlock : NestedWithin -> Bool
-aLetBlock (NestedWithin r) =
-    r.aLetBlock
-
-
-{-| Within a lambda function in the surrounding pipeline.
--}
-aLambdaFunction : NestedWithin -> Bool
-aLambdaFunction (NestedWithin r) =
-    r.aLambdaFunction
-
-
-{-| Within a `case` expression of `if...then` expression in the surrounding
-pipeline.
--}
-aFlowControlStructure : NestedWithin -> Bool
-aFlowControlStructure (NestedWithin r) =
-    r.aFlowControlStructure
-
-
-{-| Within a tuple, list, or record in the surrounding pipeline.
--}
-aDataStructure : NestedWithin -> Bool
-aDataStructure (NestedWithin r) =
-    r.aDataStructure
-
-
-{-| Checks if a left "pizza" (`<|`) operator is used in the "canonical" fashion
-in a test suite, to separate the lambda containing the test from the `test`.
-All of the following will "pass" this predicate, and all other `<|`'s will not:
-
-    import Test exposing (..)
-
-    suite =
-        describe "tests"
-            [ test "foo" <|
-                \() ->
-                    a
-            , fuzz fooFuzz "fuzz" <|
-                \foo ->
-                    a
-            , fuzz2 fooFuzz barFuzz "fuzz2" <|
-                \foo bar ->
-                    a
-            , fuzz3 fooFuzz barFuzz bazFuzz "fuzz3" <|
-                \foo bar baz ->
-                    a
-            , fuzzWith { runs = 117 } fooFuzz "fuzzWith" <|
-                \foo ->
-                    a
-
--}
-separateATestFromItsLambda : Predicate
-separateATestFromItsLambda =
-    Predicate <|
-        \lookupTable { operator, steps } ->
-            case ( operator, List.map Node.value steps ) of
-                ( LeftPizza, [ LambdaExpression _, Application es ] ) ->
-                    List.head es
-                        |> Maybe.map
-                            (\h ->
-                                case ( Node.value h, moduleNameFor lookupTable h ) of
-                                    ( FunctionOrValue _ n, Just [ "Test" ] ) ->
-                                        List.member n [ "test", "fuzz", "fuzz2", "fuzz3", "fuzzWith" ]
-
-                                    _ ->
-                                        False
-                            )
-                        |> Maybe.withDefault False
-
-                _ ->
-                    -- Any other case isn't the "test" usage
-                    False
-
-
-{-| Create a `Predicate` that matches pipelines that match both of two
-predicates.
--}
-and : Predicate -> Predicate -> Predicate
-and (Predicate p1) (Predicate p2) =
-    Predicate <| \l p -> p1 l p && p2 l p
-
-
-{-| Create a `Predicate` that matches pipelines that match either or both of two
-predicates.
--}
-or : Predicate -> Predicate -> Predicate
-or (Predicate p1) (Predicate p2) =
-    Predicate <| \l p -> p1 l p || p2 l p
-
-
-{-| Negate a `Predicate`.
--}
-doNot : Predicate -> Predicate
-doNot (Predicate pred) =
-    Predicate <| \l p -> not <| pred l p
-
-
 {-| Convert a single `PipelineRule`, as passed to the configuration, into a
 `Filter` that is actually useful for generating errors.
 -}
@@ -605,7 +326,7 @@ ruleToFilter : Context -> PipelineRule r -> Filter
 ruleToFilter { lookupTable } (PipelineRule { forbidden, except, operator, error }) pipeline =
     let
         matchesPredicate : Predicate -> Bool
-        matchesPredicate (Predicate p) =
+        matchesPredicate (Types.Predicate p) =
             p lookupTable pipeline
     in
     if
@@ -623,189 +344,6 @@ ruleToFilter { lookupTable } (PipelineRule { forbidden, except, operator, error 
 -}
 type alias Filter =
     Pipeline -> Maybe (List (Error {}))
-
-
-{-| Determine whether the pipeline has a simple input or not. This is somewhat
-subjective, of course, so use [`haveAnInputOf`](#haveAnInputOf) if you want to customize its
-behavior. A pipeline is considered to have a simple input if its input is **40
-characters or less**, is only a **single line**, and also:
-
-Is one of the following:
-
-    -- Unit
-    ()
-        |> foo
-
-    -- Name
-    a
-        |> foo
-
-    -- Prefix operator
-    (+)
-        |> foo
-
-    -- Int literal
-    1
-        |> foo
-
-    -- Hex literal
-    0x0F
-        |> foo
-
-    -- Float literal
-    1.5
-        |> foo
-
-    -- String literal
-    "bar"
-        |> foo
-
-    -- Char literal
-    'c'
-        |> foo
-
-    -- Record access function
-    .field
-        |> foo
-
-or is one of the following where all subexpressions are simple:
-
-    -- Tuple
-    ( a, "b" )
-        |> foo
-
-    -- Record
-    { a = "value" }
-        |> foo
-
-    -- List
-    []
-        |> foo
-
-    -- Record access
-    a.field
-        |> foo
-
-    -- Negation
-    elmFormatWontLetThisBeAnExample
-        |> foo
-
-    -- Parentheses
-    elmFormatWontLetThisBeAnExample
-        |> foo
-
--}
-haveASimpleInput : Predicate
-haveASimpleInput =
-    let
-        go : Node Expression -> Bool
-        go e =
-            let
-                range : Range
-                range =
-                    Node.range e
-
-                singleLine : Bool
-                singleLine =
-                    range.end.row == range.start.row
-
-                short : Bool
-                short =
-                    range.end.column - range.start.column <= 40
-            in
-            singleLine
-                && short
-                && (case Node.value e of
-                        UnitExpr ->
-                            True
-
-                        FunctionOrValue _ _ ->
-                            True
-
-                        PrefixOperator _ ->
-                            True
-
-                        Operator _ ->
-                            True
-
-                        Integer _ ->
-                            True
-
-                        Hex _ ->
-                            True
-
-                        Floatable _ ->
-                            True
-
-                        Literal _ ->
-                            True
-
-                        CharLiteral _ ->
-                            True
-
-                        RecordAccessFunction _ ->
-                            True
-
-                        TupledExpression es ->
-                            List.all go es
-
-                        RecordExpr rs ->
-                            List.all (go << Tuple.second << Node.value) rs
-
-                        ListExpr es ->
-                            List.all go es
-
-                        Negation e_ ->
-                            go e_
-
-                        ParenthesizedExpression e_ ->
-                            go e_
-
-                        RecordAccess e_ _ ->
-                            go e_
-
-                        RecordUpdateExpression _ _ ->
-                            False
-
-                        Application _ ->
-                            False
-
-                        OperatorApplication _ _ _ _ ->
-                            False
-
-                        IfBlock _ _ _ ->
-                            False
-
-                        LetExpression _ ->
-                            False
-
-                        CaseExpression _ ->
-                            False
-
-                        LambdaExpression _ ->
-                            False
-
-                        GLSLExpression _ ->
-                            False
-                   )
-    in
-    Predicate <|
-        \_ { steps } ->
-            List.head steps
-                |> Maybe.map go
-                |> Maybe.withDefault False
-
-
-{-| Like [`haveASimpleInput`](#haveASimpleInput) but with a user-providable
-function to check if an expression is simple.
--}
-haveAnInputOf : (Node Expression -> Bool) -> Predicate
-haveAnInputOf pred =
-    Predicate <|
-        \_ { steps } ->
-            List.head steps
-                |> Maybe.map pred
-                |> Maybe.withDefault False
 
 
 {-| Visit function TLDs and pass their expression to `expressionVisitor`.
@@ -994,7 +532,7 @@ getPipeline parents node op dir left right =
                 |> (\( input, steps ) ->
                         input
                             :: List.reverse (right :: steps)
-                            |> makePipeline RightPizza
+                            |> makePipeline Types.RightPizza
                    )
                 |> Just
 
@@ -1003,7 +541,7 @@ getPipeline parents node op dir left right =
                 |> (\( input, steps ) ->
                         input
                             :: List.reverse (left :: steps)
-                            |> makePipeline LeftPizza
+                            |> makePipeline Types.LeftPizza
                    )
                 |> Just
 
@@ -1013,7 +551,7 @@ getPipeline parents node op dir left right =
                         input
                             :: List.reverse (left :: steps)
                             |> List.reverse
-                            |> makePipeline RightComposition
+                            |> makePipeline Types.RightComposition
                    )
                 |> Just
 
@@ -1023,7 +561,7 @@ getPipeline parents node op dir left right =
                         input
                             :: List.reverse (right :: steps)
                             |> List.reverse
-                            |> makePipeline LeftComposition
+                            |> makePipeline Types.LeftComposition
                    )
                 |> Just
 
@@ -1079,7 +617,7 @@ getParentheticalPipeline parents node =
                 |> (\allSteps ->
                         List.concatMap
                             (descendToPipelines
-                                (( ParentheticalApplication
+                                (( Types.ParentheticalApplication
                                  , NestedWithin
                                     { aDataStructure = False
                                     , aFlowControlStructure = False
@@ -1092,7 +630,7 @@ getParentheticalPipeline parents node =
                             )
                             allSteps
                             |> (::)
-                                { operator = ParentheticalApplication
+                                { operator = Types.ParentheticalApplication
                                 , steps = allSteps
                                 , node = node
                                 , parents = parents
