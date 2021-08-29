@@ -30,7 +30,7 @@ import Elm.Syntax.Declaration as Declaration exposing (Declaration)
 import Elm.Syntax.Expression exposing (Expression(..), LetDeclaration(..))
 import Elm.Syntax.Infix exposing (InfixDirection(..))
 import Elm.Syntax.Node as Node exposing (Node(..))
-import Elm.Syntax.Range as Range
+import Elm.Syntax.Range as Range exposing (Range)
 import Internal.Types as Types exposing (NestedWithin(..), Pipeline)
 import List.Extra as ListX
 import Maybe.Extra as MaybeX
@@ -388,7 +388,7 @@ ruleToFilter ({ lookupTable } as context) (PipelineRule { forbidden, except, ope
             && not (MaybeX.unwrap False matchesPredicate except)
     then
         Maybe.withDefault (Fail { message = "Invalid ReviewPipelineStyles config!", details = [ "This should be impossible; please open a Github issue with your elm-review config!" ] }) error
-            |> makeError context pipeline
+            |> makeError pipeline
             |> Just
 
     else
@@ -537,41 +537,42 @@ application or fail if it's not a pipeline.
 getPipeline : List ( Operator (), NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
 getPipeline parents node op dir left right =
     let
-        go : Node Expression -> ( Node Expression, List (Node Expression) )
+        go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range } )
         go e =
             case Node.value e of
                 OperatorApplication op_ dir_ left_ right_ ->
                     case ( op == op_ && dir == dir_, dir_ ) of
                         ( True, Left ) ->
                             go left_
-                                |> Tuple.mapSecond ((::) right_)
+                                |> Tuple.mapSecond ((::) { node = right_, totalRangeAtThisStep = Node.range e })
 
                         ( True, Right ) ->
                             go right_
-                                |> Tuple.mapSecond ((::) left_)
+                                |> Tuple.mapSecond ((::) { node = left_, totalRangeAtThisStep = Node.range e })
 
                         _ ->
                             -- Pipeline ended
-                            ( e, [] )
+                            ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
 
                 _ ->
                     -- Pipeline ended
-                    ( e, [] )
+                    ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
 
-        makePipeline : Operator () -> List (Node Expression) -> List Pipeline
+        makePipeline : Operator () -> List { node : Node Expression, totalRangeAtThisStep : Range } -> List Pipeline
         makePipeline operator steps =
             List.concatMap
-                (descendToPipelines
-                    (( operator
-                     , NestedWithin
-                        { aLambdaFunction = False
-                        , aFlowControlStructure = False
-                        , aDataStructure = False
-                        , aLetBlock = False
-                        }
-                     )
-                        :: parents
-                    )
+                (.node
+                    >> descendToPipelines
+                        (( operator
+                         , NestedWithin
+                            { aLambdaFunction = False
+                            , aFlowControlStructure = False
+                            , aDataStructure = False
+                            , aLetBlock = False
+                            }
+                         )
+                            :: parents
+                        )
                 )
                 steps
                 |> (::)
@@ -586,7 +587,7 @@ getPipeline parents node op dir left right =
             go left
                 |> (\( input, steps ) ->
                         input
-                            :: List.reverse (right :: steps)
+                            :: List.reverse ({ node = right, totalRangeAtThisStep = Node.range node } :: steps)
                             |> makePipeline Types.RightPizza
                    )
                 |> Just
@@ -595,7 +596,7 @@ getPipeline parents node op dir left right =
             go right
                 |> (\( input, steps ) ->
                         input
-                            :: List.reverse (left :: steps)
+                            :: List.reverse ({ node = left, totalRangeAtThisStep = Node.range node } :: steps)
                             |> makePipeline Types.LeftPizza
                    )
                 |> Just
@@ -604,7 +605,7 @@ getPipeline parents node op dir left right =
             go right
                 |> (\( input, steps ) ->
                         input
-                            :: List.reverse (left :: steps)
+                            :: List.reverse ({ node = left, totalRangeAtThisStep = Node.range node } :: steps)
                             |> List.reverse
                             |> makePipeline Types.RightComposition
                    )
@@ -614,7 +615,7 @@ getPipeline parents node op dir left right =
             go left
                 |> (\( input, steps ) ->
                         input
-                            :: List.reverse (right :: steps)
+                            :: List.reverse ({ node = right, totalRangeAtThisStep = Node.range node } :: steps)
                             |> List.reverse
                             |> makePipeline Types.LeftComposition
                    )
@@ -630,24 +631,24 @@ from an `Application` node or fail.
 getParentheticalPipeline : List ( Operator (), NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
 getParentheticalPipeline parents node =
     let
-        go : Node Expression -> ( Node Expression, List (Node Expression) )
+        go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range } )
         go e =
             case Node.value e of
                 Application es ->
                     case Maybe.map (Tuple.mapFirst Node.value) <| ListX.unconsLast es of
                         Just ( ParenthesizedExpression e_, es_ ) ->
                             makeAppNode es_
-                                |> Maybe.map (\step -> Tuple.mapSecond ((::) step) <| go e_)
+                                |> Maybe.map (\step -> Tuple.mapSecond ((::) { node = step, totalRangeAtThisStep = Node.range e }) <| go e_)
                                 -- Pipeline ended
-                                |> Maybe.withDefault ( e, [] )
+                                |> Maybe.withDefault ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
 
                         _ ->
                             -- Pipeline ended
-                            ( e, [] )
+                            ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
 
                 _ ->
                     -- Pipeline ended
-                    ( e, [] )
+                    ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
 
         makeAppNode : List (Node Expression) -> Maybe (Node Expression)
         makeAppNode es =
@@ -671,17 +672,18 @@ getParentheticalPipeline parents node =
             (input :: List.reverse steps)
                 |> (\allSteps ->
                         List.concatMap
-                            (descendToPipelines
-                                (( Types.ParentheticalApplication
-                                 , NestedWithin
-                                    { aDataStructure = False
-                                    , aFlowControlStructure = False
-                                    , aLetBlock = False
-                                    , aLambdaFunction = False
-                                    }
-                                 )
-                                    :: parents
-                                )
+                            (.node
+                                >> descendToPipelines
+                                    (( Types.ParentheticalApplication
+                                     , NestedWithin
+                                        { aDataStructure = False
+                                        , aFlowControlStructure = False
+                                        , aLetBlock = False
+                                        , aLambdaFunction = False
+                                        }
+                                     )
+                                        :: parents
+                                    )
                             )
                             allSteps
                             |> (::)

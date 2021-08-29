@@ -12,6 +12,7 @@ module Internal.Types exposing
 
 import Elm.Syntax.Expression exposing (Expression)
 import Elm.Syntax.Node exposing (Node)
+import Elm.Syntax.Range exposing (Range)
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 
 
@@ -29,7 +30,9 @@ if you need to work with them directly.
   - `operator`: The operator that was detected
   - `steps`: The steps of the pipeline. Note that this is in "logical" order,
     e.g. `a >> b >> c`, `c << b << a`, `a |> b |> c`, `c <| b <| a`, and
-    `c (b a)` will all have the same steps of `[a, b, c]`.
+    `c (b a)` will all have the same steps of `[a, b, c]`. This includes not
+    only the `Node` of the expression but also the `Range` of the entire
+    pipeline up to and including this step. This is useful for fix generation.
   - `node`: The outermost `Node` of the pipeline; you probably don't need to
     work with this directly.
   - `parents`: A hierarchy of pipelines that this pipeline is nested within
@@ -38,6 +41,7 @@ if you need to work with them directly.
 -}
 type alias Pipeline =
     { operator : Operator ()
+    , steps : List { node : Node Expression, totalRangeAtThisStep : Range }
     , node : Node Expression
     , parents : List ( Operator (), NestedWithin )
     }
