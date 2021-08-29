@@ -10,7 +10,8 @@ import Review.Test.Dependencies exposing (projectWithElmCore)
 import ReviewPipelineStyles
     exposing
         ( PipelineRule
-        , byReportingError
+        , andCallThem
+        , andReportCustomError
         , exceptThoseThat
         , forbid
         , leftCompositionPipelines
@@ -32,8 +33,8 @@ import ReviewPipelineStyles.Predicates
         , getSteps
         , haveAParent
         , haveAParentNotSeparatedBy
-        , haveASimpleInput
-        , haveAnInputOf
+        , haveASimpleInputStep
+        , haveAnInputStepOf
         , haveFewerStepsThan
         , haveMoreNestedParentsThan
         , haveMoreStepsThan
@@ -51,13 +52,12 @@ all =
     describe "ReviewPipelineStyles"
         [ operatorSpecificityTests
         , recoveryTests
-        , defaultErrorTests
         , ruleHierarchyTests
         , predicateCombinationTests
         , spanMultipleLinesTests
         , lengthTests
-        , haveASimpleInputTests
-        , haveAnInputOfTests
+        , haveASimpleInputStepTests
+        , haveAnInputStepOfTests
         , subpipelineTests
         , nestingTests
         , testUsageTests
@@ -189,27 +189,6 @@ a =
         ]
 
 
-defaultErrorTests : Test
-defaultErrorTests =
-    test "right pizza does not match other pipelines" <|
-        \() ->
-            """module A exposing (..)
-a = foo |> bar
-"""
-                |> Review.Test.run
-                    (rule [ forbid rightPizzaPipelines ])
-                |> Review.Test.expectErrors
-                    [ Review.Test.error
-                        { message = "Forbidden pipeline style"
-                        , details =
-                            [ "This pipeline is stylistically-invalid by one of the rules specified in your elm-review config."
-                            , "This is the default error message, so if you're unsure why you're seeing it, you should really use ReviewPipelineStyles.byReportingError to provide a more descriptive one!"
-                            ]
-                        , under = """foo |> bar"""
-                        }
-                    ]
-
-
 ruleHierarchyTests : Test
 ruleHierarchyTests =
     describe "rule hierarchy"
@@ -221,17 +200,16 @@ a = foo |> bar
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> byReportingError "Rule A" [ "Rule A" ]
+                                |> andReportCustomError "Rule A" [ "Rule A" ]
                             , forbid rightPizzaPipelines
-                                |> byReportingError "Rule B" [ "Rule B" ]
+                                |> andReportCustomError "Rule B" [ "Rule B" ]
                             ]
                         )
                     |> Review.Test.expectErrors
                         [ Review.Test.error
                             { message = "Rule A"
                             , details =
-                                [ "Rule A"
-                                ]
+                                [ "Rule A" ]
                             , under = """foo |> bar"""
                             }
                         ]
@@ -243,17 +221,16 @@ a = foo |> bar
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> byReportingError "Rule B" [ "Rule B" ]
+                                |> andReportCustomError "Rule B" [ "Rule B" ]
                             , forbid rightPizzaPipelines
-                                |> byReportingError "Rule A" [ "Rule A" ]
+                                |> andReportCustomError "Rule A" [ "Rule A" ]
                             ]
                         )
                     |> Review.Test.expectErrors
                         [ Review.Test.error
                             { message = "Rule B"
                             , details =
-                                [ "Rule B"
-                                ]
+                                [ "Rule B" ]
                             , under = """foo |> bar"""
                             }
                         ]
@@ -518,9 +495,9 @@ c =
         ]
 
 
-haveASimpleInputTests : Test
-haveASimpleInputTests =
-    describe "haveASimpleInput"
+haveASimpleInputStepTests : Test
+haveASimpleInputStepTests =
+    describe "haveASimpleInputStep"
         [ test "more than 40 chars is not simple" <|
             \() ->
                 """module A exposing (..)
@@ -532,7 +509,7 @@ b = "1234567890abcdefghijklmnopqrstuvwxyz123" |> foo1 |> bar1 |> baz1
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that (doNot haveASimpleInput)
+                                |> that (doNot haveASimpleInputStep)
                                 |> fail
                             ]
                         )
@@ -556,7 +533,7 @@ def\"\"\"
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that (doNot haveASimpleInput)
+                                |> that (doNot haveASimpleInputStep)
                                 |> fail
                             ]
                         )
@@ -602,7 +579,7 @@ ab = (\\i -> i + 1) |> lambdaNeverSimple
                     |> Review.Test.run
                         (rule
                             [ forbid rightPizzaPipelines
-                                |> that haveASimpleInput
+                                |> that haveASimpleInputStep
                                 |> fail
                             ]
                         )
@@ -626,9 +603,9 @@ ab = (\\i -> i + 1) |> lambdaNeverSimple
         ]
 
 
-haveAnInputOfTests : Test
-haveAnInputOfTests =
-    test "haveAnInputOf works for all pipelines" <|
+haveAnInputStepOfTests : Test
+haveAnInputStepOfTests =
+    test "haveAnInputStepOf works for all pipelines" <|
         \() ->
             let
                 specificIntLiteral : Node Expression -> Bool
@@ -661,19 +638,19 @@ e2 =
                 |> Review.Test.run
                     (rule
                         [ forbid leftPizzaPipelines
-                            |> that (haveAnInputOf specificIntLiteral)
+                            |> that (haveAnInputStepOf specificIntLiteral)
                             |> fail
                         , forbid rightPizzaPipelines
-                            |> that (haveAnInputOf specificIntLiteral)
+                            |> that (haveAnInputStepOf specificIntLiteral)
                             |> fail
                         , forbid leftCompositionPipelines
-                            |> that (haveAnInputOf specificIntLiteral)
+                            |> that (haveAnInputStepOf specificIntLiteral)
                             |> fail
                         , forbid rightCompositionPipelines
-                            |> that (haveAnInputOf specificIntLiteral)
+                            |> that (haveAnInputStepOf specificIntLiteral)
                             |> fail
                         , forbid parentheticalApplicationPipelines
-                            |> that (haveAnInputOf specificIntLiteral)
+                            |> that (haveAnInputStepOf specificIntLiteral)
                             |> fail
                         ]
                     )
@@ -1077,11 +1054,19 @@ b = A.foo |> bar
         ]
 
 
-fail : PipelineRule r -> PipelineRule r
+fail : PipelineRule anyType -> PipelineRule ()
 fail =
-    byReportingError "Fail" [ "Fail" ]
+    andCallThem "failing pipeline"
 
 
 expectFail : String -> Review.Test.ExpectedError
 expectFail under =
-    Review.Test.error { message = "Fail", details = [ "Fail" ], under = under }
+    Review.Test.error
+        { message = "Forbidden pipeline style: failing pipeline"
+        , details =
+            [ "This pipeline is a: failing pipeline"
+            , "It is stylistically-invalid by one of the rules specified in your elm-review config."
+            , "If you're still unsure why you're seeing it, you should use ReviewPipelineStyles.andReportCustomError to provide a more descriptive error message."
+            ]
+        , under = under
+        }

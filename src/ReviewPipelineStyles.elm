@@ -1,7 +1,7 @@
 module ReviewPipelineStyles exposing
     ( rule
     , PipelineRule, forbid, that, exceptThoseThat
-    , byReportingError
+    , andCallThem, andReportCustomError
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
     )
 
@@ -17,7 +17,7 @@ module ReviewPipelineStyles exposing
 
 ## Failures
 
-@docs byReportingError
+@docs andCallThem, andReportCustomError
 
 
 ## Pipeline Types
@@ -36,7 +36,7 @@ import List.Extra as ListX
 import Maybe.Extra as MaybeX
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import Review.Rule as Rule exposing (Error, Rule)
-import ReviewPipelineStyles.Predicates exposing (Operator, Predicate, or)
+import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Operator, Predicate, or)
 import String exposing (right)
 
 
@@ -46,10 +46,10 @@ the usage of `<|` or the usage of excessively-long `|>` pipelines.
     config =
         [ ReviewPipelineStyles.rule
             [ forbid leftPizzaPipelines
-                |> byReportingError "Forbidden <| pipeline!" [ "Left application pipelines are forbidden in this project, so please remove it." ]
+                |> andCallThem "forbidden <| pipeline"
             , forbid rightPizzaPipelines
                 |> that (haveMoreStepsThan 10)
-                |> byReportingError "Overly long |> pipeline!" [ "Right application pipelines may only be a maximum of 11 steps long in this project, so please remove it." ]
+                |> andCallThem "overly long |> pipeline"
             ]
         ]
 
@@ -122,7 +122,7 @@ elm-review --template SiriusStarr/elm-review-pipeline-styles/example --rules Rev
 ```
 
 -}
-rule : List (PipelineRule r) -> Rule
+rule : List (PipelineRule ()) -> Rule
 rule rules =
     Rule.newModuleRuleSchemaUsingContextCreator "ReviewPipelineStyles" initialContext
         |> Rule.withDeclarationEnterVisitor (\d context -> ( declarationVisitor (List.map (ruleToFilter context) rules) d, context ))
@@ -154,20 +154,20 @@ matches **all** pipelines of that type. For example, to entirely forbid `<|` in
 your project, you could use:
 
     forbid leftPizzaPipelines
-        |> byReportingError "Forbidden <| pipeline!" [ "Left application pipelines are forbidden in this project, so please remove it." ]
+        |> andCallThem "forbidden <| pipeline"
 
 Or, to forbid only `|>` pipelines that are extremely long, you could use:
 
     forbid rightPizzaPipelines
         |> that (haveMoreStepsThan 10)
-        |> byReportingError "Overly long |> pipeline!" [ "Right application pipelines may only be a maximum of 11 steps long in this project, so please remove it." ]
+        |> andCallThem "overly long |> pipeline"
 
 -}
-type PipelineRule a
+type PipelineRule pipelineType
     = PipelineRule
-        { forbidden : Maybe Predicate
-        , except : Maybe Predicate
-        , operator : Operator
+        { forbidden : Maybe (Predicate pipelineType)
+        , except : Maybe (Predicate pipelineType)
+        , operator : Operator pipelineType
         , error : Maybe PipelineError
         }
 
@@ -186,7 +186,7 @@ example of this pipeline is below:
         |> baz
 
 -}
-rightPizzaPipelines : Operator
+rightPizzaPipelines : Operator ApplicationPipeline
 rightPizzaPipelines =
     Types.RightPizza
 
@@ -197,7 +197,7 @@ example of this pipeline is below:
     foo <| bar <| baz
 
 -}
-leftPizzaPipelines : Operator
+leftPizzaPipelines : Operator ApplicationPipeline
 leftPizzaPipelines =
     Types.LeftPizza
 
@@ -210,7 +210,7 @@ example of this pipeline is below:
         >> baz
 
 -}
-rightCompositionPipelines : Operator
+rightCompositionPipelines : Operator CompositionPipeline
 rightCompositionPipelines =
     Types.RightComposition
 
@@ -221,7 +221,7 @@ example of this pipeline is below:
     foo << bar << baz
 
 -}
-leftCompositionPipelines : Operator
+leftCompositionPipelines : Operator CompositionPipeline
 leftCompositionPipelines =
     Types.LeftComposition
 
@@ -232,14 +232,14 @@ successive function calls using parentheses, e.g.
     foo (bar (baz (i (j k))))
 
 -}
-parentheticalApplicationPipelines : Operator
+parentheticalApplicationPipelines : Operator ApplicationPipeline
 parentheticalApplicationPipelines =
     Types.ParentheticalApplication
 
 
 {-| Forbid certain pipelines.
 -}
-forbid : Operator -> PipelineRule ()
+forbid : Operator pipelineType -> PipelineRule pipelineType
 forbid o =
     PipelineRule
         { forbidden = Nothing
@@ -249,13 +249,66 @@ forbid o =
         }
 
 
-{-| Provide a message and details to forbid pipelines by reporting an error
-without a fix. If you don't pass any error to a `PipelineRule`, you will get a
-generic error message that isn't very helpful, so you should always specify an
-error!
+{-| Convert a `PipelineRule` of a specific type into a generic rule.
 -}
-byReportingError : String -> List String -> PipelineRule r -> PipelineRule r
-byReportingError message details (PipelineRule r) =
+finalizeRule : PipelineRule pipelineType -> PipelineRule ()
+finalizeRule (PipelineRule { forbidden, except, operator, error }) =
+    let
+        fixPredicateType : Predicate pipelineType -> Predicate ()
+        fixPredicateType (Types.Predicate p) =
+            Types.Predicate p
+
+        fixOperatorType : Operator pipelineType -> Operator ()
+        fixOperatorType o =
+            case o of
+                Types.RightPizza ->
+                    Types.RightPizza
+
+                Types.LeftPizza ->
+                    Types.LeftPizza
+
+                Types.RightComposition ->
+                    Types.RightComposition
+
+                Types.LeftComposition ->
+                    Types.LeftComposition
+
+                Types.ParentheticalApplication ->
+                    Types.ParentheticalApplication
+    in
+    PipelineRule
+        { forbidden = Maybe.map fixPredicateType forbidden
+        , except = Maybe.map fixPredicateType except
+        , operator = fixOperatorType operator
+        , error = error
+        }
+
+
+{-| Provide a descriptive name for this type of failing pipeline. This will
+appear in the `elm-review` error generated and should give you a sense of what's
+wrong and how to fix it. Either this or
+[`andReportCustomError`](#andReportCustomError) must be the last thing in your
+rule.
+-}
+andCallThem : String -> PipelineRule anyType -> PipelineRule ()
+andCallThem description pRule =
+    let
+        (PipelineRule r) =
+            finalizeRule pRule
+    in
+    PipelineRule { r | error = Just <| defaultError description }
+
+
+{-| Provide a fully custom error message for failing pipelines, with both
+message and details. Either this or [`andCallThem`](#andCallThem) must be the
+last thing in your rule.
+-}
+andReportCustomError : String -> List String -> PipelineRule anyType -> PipelineRule ()
+andReportCustomError message details pRule =
+    let
+        (PipelineRule r) =
+            finalizeRule pRule
+    in
     PipelineRule { r | error = Just <| Fail { message = message, details = details } }
 
 
@@ -279,7 +332,7 @@ Note that if `exceptThoseThat` is used multiple times, it is equivalent to using
         |> exceptThoseThat (haveFewerStepsThan 2)
 
 -}
-exceptThoseThat : Predicate -> PipelineRule r -> PipelineRule r
+exceptThoseThat : Predicate pipelineType -> PipelineRule pipelineType -> PipelineRule pipelineType
 exceptThoseThat p (PipelineRule r) =
     case r.except of
         Nothing ->
@@ -309,7 +362,7 @@ Note that if `that` is used multiple times, it is equivalent to using
         |> that (haveMoreStepsThan 5)
 
 -}
-that : Predicate -> PipelineRule r -> PipelineRule r
+that : Predicate pipelineType -> PipelineRule pipelineType -> PipelineRule pipelineType
 that p (PipelineRule r) =
     case r.forbidden of
         Nothing ->
@@ -322,10 +375,10 @@ that p (PipelineRule r) =
 {-| Convert a single `PipelineRule`, as passed to the configuration, into a
 `Filter` that is actually useful for generating errors.
 -}
-ruleToFilter : Context -> PipelineRule r -> Filter
-ruleToFilter { lookupTable } (PipelineRule { forbidden, except, operator, error }) pipeline =
+ruleToFilter : Context -> PipelineRule () -> Filter
+ruleToFilter ({ lookupTable } as context) (PipelineRule { forbidden, except, operator, error }) pipeline =
     let
-        matchesPredicate : Predicate -> Bool
+        matchesPredicate : Predicate () -> Bool
         matchesPredicate (Types.Predicate p) =
             p lookupTable pipeline
     in
@@ -334,7 +387,9 @@ ruleToFilter { lookupTable } (PipelineRule { forbidden, except, operator, error 
             && MaybeX.unwrap True matchesPredicate forbidden
             && not (MaybeX.unwrap False matchesPredicate except)
     then
-        Just <| MaybeX.unwrap (makeError pipeline defaultError) (makeError pipeline) error
+        Maybe.withDefault (Fail { message = "Invalid ReviewPipelineStyles config!", details = [ "This should be impossible; please open a Github issue with your elm-review config!" ] }) error
+            |> makeError context pipeline
+            |> Just
 
     else
         Nothing
@@ -371,7 +426,7 @@ declarationVisitor filters d =
 {-| Given a list of parent pipelines and an expression node, check for child
 pipelines within that node, descending as necessary.
 -}
-descendToPipelines : List ( Operator, NestedWithin ) -> Node Expression -> List Pipeline
+descendToPipelines : List ( Operator (), NestedWithin ) -> Node Expression -> List Pipeline
 descendToPipelines parents node =
     let
         go : Node Expression -> List Pipeline
@@ -479,7 +534,7 @@ descendToPipelines parents node =
 {-| Given a list of parent pipelines, get a pipeline from an operator
 application or fail if it's not a pipeline.
 -}
-getPipeline : List ( Operator, NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
+getPipeline : List ( Operator (), NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
 getPipeline parents node op dir left right =
     let
         go : Node Expression -> ( Node Expression, List (Node Expression) )
@@ -503,7 +558,7 @@ getPipeline parents node op dir left right =
                     -- Pipeline ended
                     ( e, [] )
 
-        makePipeline : Operator -> List (Node Expression) -> List Pipeline
+        makePipeline : Operator () -> List (Node Expression) -> List Pipeline
         makePipeline operator steps =
             List.concatMap
                 (descendToPipelines
@@ -572,7 +627,7 @@ getPipeline parents node op dir left right =
 {-| Given a list of parent pipelines, get a parenthetical application pipeline
 from an `Application` node or fail.
 -}
-getParentheticalPipeline : List ( Operator, NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
+getParentheticalPipeline : List ( Operator (), NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
 getParentheticalPipeline parents node =
     let
         go : Node Expression -> ( Node Expression, List (Node Expression) )
@@ -649,12 +704,13 @@ makeError { node } (Fail err) =
 
 {-| The error that is reported for invalid pipelines if none is provided.
 -}
-defaultError : PipelineError
-defaultError =
+defaultError : String -> PipelineError
+defaultError description =
     Fail
-        { message = "Forbidden pipeline style"
+        { message = "Forbidden pipeline style: " ++ description
         , details =
-            [ "This pipeline is stylistically-invalid by one of the rules specified in your elm-review config."
-            , "This is the default error message, so if you're unsure why you're seeing it, you should really use ReviewPipelineStyles.byReportingError to provide a more descriptive one!"
+            [ "This pipeline is a: " ++ description
+            , "It is stylistically-invalid by one of the rules specified in your elm-review config."
+            , "If you're still unsure why you're seeing it, you should use ReviewPipelineStyles.andReportCustomError to provide a more descriptive error message."
             ]
         }

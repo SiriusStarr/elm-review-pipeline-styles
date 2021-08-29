@@ -29,10 +29,10 @@ config : List Rule
 config =
     [ ReviewPipelineStyles.rule
         [ forbid leftPizzaPipelines
-            |> byReportingError "Forbidden <| pipeline!" [ "Left application pipelines are forbidden in this project, so please remove it." ]
+            |> andCallThem "forbidden <| pipeline"
         , forbid rightPizzaPipelines
             |> that (haveMoreStepsThan 10)
-            |> byReportingError "Overly long |> pipeline!" [ "Right application pipelines may only be a maximum of 11 steps long in this project, so please remove it." ]
+            |> andCallThem "overly long |> pipeline"
         ]
     ]
 ```

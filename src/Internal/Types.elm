@@ -1,4 +1,11 @@
-module Internal.Types exposing (NestedWithin(..), Operator(..), Pipeline, Predicate(..))
+module Internal.Types exposing
+    ( ApplicationPipeline
+    , CompositionPipeline
+    , NestedWithin(..)
+    , Operator(..)
+    , Pipeline
+    , Predicate(..)
+    )
 
 {-| Internal types, not to have their details exposed.
 -}
@@ -10,7 +17,7 @@ import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 
 {-| A predicate for filtering pipelines, or a logical combination of them.
 -}
-type Predicate
+type Predicate pipelineType
     = Predicate (ModuleNameLookupTable -> Pipeline -> Bool)
 
 
@@ -30,10 +37,9 @@ if you need to work with them directly.
 
 -}
 type alias Pipeline =
-    { operator : Operator
-    , steps : List (Node Expression)
+    { operator : Operator ()
     , node : Node Expression
-    , parents : List ( Operator, NestedWithin )
+    , parents : List ( Operator (), NestedWithin )
     }
 
 
@@ -65,9 +71,21 @@ type NestedWithin
   - `ParentheticalApplication` -- `foo (bar (baz (i (j k))))`
 
 -}
-type Operator
+type Operator pipelineType
     = RightPizza
     | LeftPizza
     | RightComposition
     | LeftComposition
     | ParentheticalApplication
+
+
+{-| Phantom type for pipeline types.
+-}
+type ApplicationPipeline
+    = ApplicationPipeline Never
+
+
+{-| Phantom type for pipeline types.
+-}
+type CompositionPipeline
+    = CompositionPipeline Never

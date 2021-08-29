@@ -12,7 +12,7 @@ when inside the directory containing this file.
 -}
 
 import Review.Rule exposing (Rule)
-import ReviewPipelineStyles exposing (leftPizzaPipelines,exceptThoseThat, forbid, byReportingError)
+import ReviewPipelineStyles exposing (leftPizzaPipelines,exceptThoseThat, forbid, andCallThem)
 import ReviewPipelineStyles.Predicates exposing (separateATestFromItsLambda)
 
 
@@ -21,6 +21,6 @@ config =
     [ ReviewPipelineStyles.rule
         [  forbid leftPizzaPipelines
             |> exceptThoseThat separateATestFromItsLambda
-            |> byReportingError "No left pizza!" [ "Left pizza <| pipelines have been forbidden, except in the \"canonical\" test usage." ]
+            |> andReportCustomError "No left pizza!" [ "Left pizza <| pipelines have been forbidden, except in the \"canonical\" test usage." ]
         ]
     ]
