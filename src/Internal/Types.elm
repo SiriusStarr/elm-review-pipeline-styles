@@ -4,6 +4,7 @@ module Internal.Types exposing
     , NestedWithin(..)
     , Operator(..)
     , Pipeline
+    , PipelineFix(..)
     , Predicate(..)
     )
 
@@ -13,6 +14,7 @@ module Internal.Types exposing
 import Elm.Syntax.Expression exposing (Expression)
 import Elm.Syntax.Node exposing (Node)
 import Elm.Syntax.Range exposing (Range)
+import Review.Fix exposing (Fix)
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 
 
@@ -81,6 +83,12 @@ type Operator pipelineType
     | RightComposition
     | LeftComposition
     | ParentheticalApplication
+
+
+{-| A possible fix for a pipeline.
+-}
+type PipelineFix pipelineType
+    = PipelineFix (ModuleNameLookupTable -> (Range -> String) -> Pipeline -> Maybe (List Fix))
 
 
 {-| Phantom type for pipeline types.

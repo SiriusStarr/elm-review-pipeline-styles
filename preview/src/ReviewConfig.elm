@@ -12,7 +12,7 @@ when inside the directory containing this file.
 -}
 
 import Review.Rule exposing (Rule)
-import ReviewPipelineStyles exposing (leftPizzaPipelines,exceptThoseThat, forbid, andCallThem)
+import ReviewPipelineStyles exposing (leftPizzaPipelines,exceptThoseThat, forbid, andReportCustomError)
 import ReviewPipelineStyles.Predicates exposing (separateATestFromItsLambda)
 
 

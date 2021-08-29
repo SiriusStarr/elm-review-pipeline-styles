@@ -2,6 +2,7 @@ module ReviewPipelineStyles exposing
     ( rule
     , PipelineRule, forbid, that, exceptThoseThat
     , andCallThem, andReportCustomError
+    , andTryToFixThemBy
     , rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
     )
 
@@ -20,6 +21,11 @@ module ReviewPipelineStyles exposing
 @docs andCallThem, andReportCustomError
 
 
+## Fixes
+
+@docs andTryToFixThemBy
+
+
 ## Pipeline Types
 
 @docs rightPizzaPipelines, leftPizzaPipelines, rightCompositionPipelines, leftCompositionPipelines, parentheticalApplicationPipelines
@@ -36,6 +42,7 @@ import List.Extra as ListX
 import Maybe.Extra as MaybeX
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import Review.Rule as Rule exposing (Error, Rule)
+import ReviewPipelineStyles.Fixes exposing (PipelineFix)
 import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Operator, Predicate, or)
 import String exposing (right)
 
@@ -134,14 +141,17 @@ rule rules =
 initialContext : Rule.ContextCreator () Context
 initialContext =
     Rule.initContextCreator
-        (\lookupTable () -> { lookupTable = lookupTable })
+        (\lookupTable extractSource () -> { lookupTable = lookupTable, extractSource = extractSource })
         |> Rule.withModuleNameLookupTable
+        |> Rule.withSourceCodeExtractor
 
 
 {-| Context for the declaration visitor.
 -}
 type alias Context =
-    { lookupTable : ModuleNameLookupTable }
+    { lookupTable : ModuleNameLookupTable
+    , extractSource : Range -> String
+    }
 
 
 {-| Configuration of this rule is in the form of a list of `PipelineRule`s. It
@@ -169,6 +179,7 @@ type PipelineRule pipelineType
         , except : Maybe (Predicate pipelineType)
         , operator : Operator pipelineType
         , error : Maybe PipelineError
+        , fix : Maybe (PipelineFix pipelineType)
         }
 
 
@@ -246,13 +257,14 @@ forbid o =
         , except = Nothing
         , operator = o
         , error = Nothing
+        , fix = Nothing
         }
 
 
 {-| Convert a `PipelineRule` of a specific type into a generic rule.
 -}
 finalizeRule : PipelineRule pipelineType -> PipelineRule ()
-finalizeRule (PipelineRule { forbidden, except, operator, error }) =
+finalizeRule (PipelineRule { forbidden, except, operator, error, fix }) =
     let
         fixPredicateType : Predicate pipelineType -> Predicate ()
         fixPredicateType (Types.Predicate p) =
@@ -275,12 +287,17 @@ finalizeRule (PipelineRule { forbidden, except, operator, error }) =
 
                 Types.ParentheticalApplication ->
                     Types.ParentheticalApplication
+
+        fixFixType : PipelineFix pipelineType -> PipelineFix ()
+        fixFixType (Types.PipelineFix f) =
+            Types.PipelineFix f
     in
     PipelineRule
         { forbidden = Maybe.map fixPredicateType forbidden
         , except = Maybe.map fixPredicateType except
         , operator = fixOperatorType operator
         , error = error
+        , fix = Maybe.map fixFixType fix
         }
 
 
@@ -310,6 +327,13 @@ andReportCustomError message details pRule =
             finalizeRule pRule
     in
     PipelineRule { r | error = Just <| Fail { message = message, details = details } }
+
+
+{-| Add fixes to a `PipelineRule`.
+-}
+andTryToFixThemBy : PipelineFix pipelineType -> PipelineRule pipelineType -> PipelineRule pipelineType
+andTryToFixThemBy fix (PipelineRule r) =
+    PipelineRule { r | fix = Just fix }
 
 
 {-| Exclude (whitelist) pipelines that match a predicate from being forbidden.
@@ -376,7 +400,7 @@ that p (PipelineRule r) =
 `Filter` that is actually useful for generating errors.
 -}
 ruleToFilter : Context -> PipelineRule () -> Filter
-ruleToFilter ({ lookupTable } as context) (PipelineRule { forbidden, except, operator, error }) pipeline =
+ruleToFilter ({ lookupTable } as context) (PipelineRule { forbidden, except, operator, error, fix }) pipeline =
     let
         matchesPredicate : Predicate () -> Bool
         matchesPredicate (Types.Predicate p) =
@@ -388,7 +412,7 @@ ruleToFilter ({ lookupTable } as context) (PipelineRule { forbidden, except, ope
             && not (MaybeX.unwrap False matchesPredicate except)
     then
         Maybe.withDefault (Fail { message = "Invalid ReviewPipelineStyles config!", details = [ "This should be impossible; please open a Github issue with your elm-review config!" ] }) error
-            |> makeError pipeline
+            |> makeError context pipeline fix
             |> Just
 
     else
@@ -699,9 +723,13 @@ getParentheticalPipeline parents node =
 {-| Given a `Pipeline` and a `PipelineError`, create an actual `elm-review`
 error.
 -}
-makeError : Pipeline -> PipelineError -> List (Error {})
-makeError { node } (Fail err) =
-    [ Rule.error err (Node.range node) ]
+makeError : Context -> Pipeline -> Maybe (PipelineFix ()) -> PipelineError -> List (Error {})
+makeError { extractSource, lookupTable } ({ node } as p) fix (Fail err) =
+    Maybe.map (\(Types.PipelineFix f) -> f) fix
+        |> Maybe.andThen (\f -> f lookupTable extractSource p)
+        |> MaybeX.unwrap Rule.error (\f e r -> Rule.errorWithFix e r f)
+        |> (\makeErr -> makeErr err (Node.range node))
+        |> List.singleton
 
 
 {-| The error that is reported for invalid pipelines if none is provided.
