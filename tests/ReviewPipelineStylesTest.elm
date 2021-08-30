@@ -40,6 +40,7 @@ import ReviewPipelineStyles.Predicates
         , haveAnInputStepOf
         , haveAnUnnecessaryInputStep
         , haveFewerStepsThan
+        , haveInternalComments
         , haveMoreNestedParentsThan
         , haveMoreStepsThan
         , or
@@ -66,6 +67,7 @@ all =
         , nestingTests
         , testUsageTests
         , customPredicateTests
+        , haveInternalCommentsTests
         , fixTests
         ]
 
@@ -1064,6 +1066,41 @@ b = A.foo |> bar
                         )
                     |> Review.Test.expectErrors
                         [ expectFail """foo |> bar |> baz""" ]
+        ]
+
+
+haveInternalCommentsTests : Test
+haveInternalCommentsTests =
+    describe "haveInternalComments"
+        [ test "ignores comments around, flags comments in" <|
+            \() ->
+                """module A exposing (..)
+a =
+    foo
+        -- Comment
+        |> bar
+        |> baz
+
+b =
+    -- Ignored
+    foo
+        |> bar
+        |> baz
+
+-- Ignored
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that haveInternalComments
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo
+        -- Comment
+        |> bar
+        |> baz""" ]
         ]
 
 

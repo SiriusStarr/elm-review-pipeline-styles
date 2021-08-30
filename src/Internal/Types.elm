@@ -46,6 +46,7 @@ type alias Pipeline =
     , steps : List { node : Node Expression, totalRangeAtThisStep : Range }
     , node : Node Expression
     , parents : List ( Operator (), NestedWithin )
+    , internalComments : List (Node String)
     }
 
 

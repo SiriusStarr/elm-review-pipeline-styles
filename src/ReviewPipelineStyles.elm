@@ -132,7 +132,8 @@ elm-review --template SiriusStarr/elm-review-pipeline-styles/example --rules Rev
 rule : List (PipelineRule ()) -> Rule
 rule rules =
     Rule.newModuleRuleSchemaUsingContextCreator "ReviewPipelineStyles" initialContext
-        |> Rule.withDeclarationEnterVisitor (\d context -> ( declarationVisitor (List.map (ruleToFilter context) rules) d, context ))
+        |> Rule.withCommentsVisitor (\cs context -> ( [], { context | comments = cs } ))
+        |> Rule.withDeclarationEnterVisitor (\d context -> ( declarationVisitor (List.map (ruleToFilter context) rules) context d, context ))
         |> Rule.fromModuleRuleSchema
 
 
@@ -141,7 +142,7 @@ rule rules =
 initialContext : Rule.ContextCreator () Context
 initialContext =
     Rule.initContextCreator
-        (\lookupTable extractSource () -> { lookupTable = lookupTable, extractSource = extractSource })
+        (\lookupTable extractSource () -> { lookupTable = lookupTable, extractSource = extractSource, comments = [] })
         |> Rule.withModuleNameLookupTable
         |> Rule.withSourceCodeExtractor
 
@@ -151,6 +152,7 @@ initialContext =
 type alias Context =
     { lookupTable : ModuleNameLookupTable
     , extractSource : Range -> String
+    , comments : List (Node String)
     }
 
 
@@ -427,13 +429,13 @@ type alias Filter =
 
 {-| Visit function TLDs and pass their expression to `expressionVisitor`.
 -}
-declarationVisitor : List Filter -> Node Declaration -> List (Error {})
-declarationVisitor filters d =
+declarationVisitor : List Filter -> Context -> Node Declaration -> List (Error {})
+declarationVisitor filters context d =
     case Node.value d of
         Declaration.FunctionDeclaration { declaration } ->
             Node.value declaration
                 |> .expression
-                |> descendToPipelines []
+                |> descendToPipelines context []
                 |> List.filterMap (MaybeX.oneOf filters)
                 |> List.concat
 
@@ -450,18 +452,18 @@ declarationVisitor filters d =
 {-| Given a list of parent pipelines and an expression node, check for child
 pipelines within that node, descending as necessary.
 -}
-descendToPipelines : List ( Operator (), NestedWithin ) -> Node Expression -> List Pipeline
-descendToPipelines parents node =
+descendToPipelines : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> List Pipeline
+descendToPipelines context parents node =
     let
         go : Node Expression -> List Pipeline
         go =
-            descendToPipelines parents
+            descendToPipelines context parents
 
         goIn : (NestedWithin -> NestedWithin) -> Node Expression -> List Pipeline
         goIn f =
             case List.head parents of
                 Just ( op, n ) ->
-                    descendToPipelines (( op, f n ) :: List.drop 1 parents)
+                    descendToPipelines context (( op, f n ) :: List.drop 1 parents)
 
                 _ ->
                     go
@@ -484,12 +486,12 @@ descendToPipelines parents node =
     in
     case Node.value node of
         OperatorApplication op dir left right ->
-            getPipeline parents node op dir left right
+            getPipeline context parents node op dir left right
                 |> Maybe.withDefault (go left ++ go right)
 
         Application es ->
             -- Application might be the start of a parenthetical application pipeline
-            getParentheticalPipeline parents node
+            getParentheticalPipeline context parents node
                 |> Maybe.withDefault (List.concatMap go es)
 
         -- Descend into subexpression until we encounter a pipeline
@@ -558,8 +560,8 @@ descendToPipelines parents node =
 {-| Given a list of parent pipelines, get a pipeline from an operator
 application or fail if it's not a pipeline.
 -}
-getPipeline : List ( Operator (), NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
-getPipeline parents node op dir left right =
+getPipeline : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
+getPipeline ({ comments } as context) parents node op dir left right =
     let
         go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range } )
         go e =
@@ -586,7 +588,7 @@ getPipeline parents node op dir left right =
         makePipeline operator steps =
             List.concatMap
                 (.node
-                    >> descendToPipelines
+                    >> descendToPipelines context
                         (( operator
                          , NestedWithin
                             { aLambdaFunction = False
@@ -604,6 +606,7 @@ getPipeline parents node op dir left right =
                     , steps = steps
                     , node = node
                     , parents = parents
+                    , internalComments = getCommentsIn (Node.range node) comments
                     }
     in
     case ( op, dir ) of
@@ -652,8 +655,8 @@ getPipeline parents node op dir left right =
 {-| Given a list of parent pipelines, get a parenthetical application pipeline
 from an `Application` node or fail.
 -}
-getParentheticalPipeline : List ( Operator (), NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
-getParentheticalPipeline parents node =
+getParentheticalPipeline : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
+getParentheticalPipeline ({ comments } as context) parents node =
     let
         go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range } )
         go e =
@@ -697,7 +700,7 @@ getParentheticalPipeline parents node =
                 |> (\allSteps ->
                         List.concatMap
                             (.node
-                                >> descendToPipelines
+                                >> descendToPipelines context
                                     (( Types.ParentheticalApplication
                                      , NestedWithin
                                         { aDataStructure = False
@@ -715,9 +718,31 @@ getParentheticalPipeline parents node =
                                 , steps = allSteps
                                 , node = node
                                 , parents = parents
+                                , internalComments = getCommentsIn (Node.range node) comments
                                 }
                    )
                 |> Just
+
+
+{-| Given a range and a list of comments, find all comments that are within that
+range.
+-}
+getCommentsIn : Range -> List (Node String) -> List (Node String)
+getCommentsIn range =
+    List.filter
+        (\c ->
+            let
+                r : Range
+                r =
+                    Node.range c
+            in
+            ((r.start.row > range.start.row)
+                || (r.start.row == range.start.row && r.start.column >= range.start.column)
+            )
+                && ((r.end.row < range.end.row)
+                        || (r.end.row == range.end.row && r.end.column <= range.end.column)
+                   )
+        )
 
 
 {-| Given a `Pipeline` and a `PipelineError`, create an actual `elm-review`

@@ -1,9 +1,9 @@
 module ReviewPipelineStyles.Predicates exposing
     ( and, or, doNot
-    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnInputStepOf, separateATestFromItsLambda
+    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnInputStepOf, separateATestFromItsLambda, haveInternalComments
     , haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
     , predicate, predicateWithLookupTable
-    , getSteps, getParents, getNode
+    , getSteps, getParents, getNode, getInternalComments
     , isRightPizza, isLeftPizza, isRightComposition, isLeftComposition, isParentheticalApplication
     , Predicate, Operator, Pipeline, NestedWithin, ApplicationPipeline, CompositionPipeline
     )
@@ -19,7 +19,7 @@ pipelines.
 
 ## Predicates
 
-@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnInputStepOf, separateATestFromItsLambda
+@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnInputStepOf, separateATestFromItsLambda, haveInternalComments
 
 
 ## Nesting Predicates
@@ -47,7 +47,7 @@ Note that some of the types returned by these functions are from
 [`stil4m/elm-syntax`](https://package.elm-lang.org/packages/stil4m/elm-syntax/7.2.7/)
 if you need to work with them directly.
 
-@docs getSteps, getParents, getNode
+@docs getSteps, getParents, getNode, getInternalComments
 
 
 ## Query Pipeline Types
@@ -569,6 +569,31 @@ separateATestFromItsLambda =
                     False
 
 
+{-| Checks whether any comments are located within the pipeline, e.g.
+
+    a =
+        foo
+            -- Comment
+            |> bar
+            |> baz
+
+Comments _around_ the pipeline are ignored, e.g.
+
+
+    a =
+        -- Ignored
+        foo
+            |> bar
+            |> baz
+
+    -- Ignored
+
+-}
+haveInternalComments : Predicate anyType
+haveInternalComments =
+    Predicate <| \_ { internalComments } -> not <| List.isEmpty internalComments
+
+
 {-| Given a function of type `Pipeline -> Bool`, create a `Predicate` from it.
 This is only useful if you want to write custom predicates. Note that this will
 allow you to create predicates that match any type of pipeline, so be careful in
@@ -617,6 +642,13 @@ this directly.
 getNode : Pipeline -> Node Expression
 getNode =
     .node
+
+
+{-| Get a list of all comments that are inside of a pipeline.
+-}
+getInternalComments : Pipeline -> List (Node String)
+getInternalComments =
+    .internalComments
 
 
 {-| Check if an `Operator` is the right "pizza" operator (right function
