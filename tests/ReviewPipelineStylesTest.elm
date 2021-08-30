@@ -3,6 +3,7 @@ module ReviewPipelineStylesTest exposing (all)
 import Dependencies.ElmExplorationsTest
 import Elm.Syntax.Expression as Expression exposing (Expression)
 import Elm.Syntax.Node as Node exposing (Node)
+import Expect
 import Review.ModuleNameLookupTable exposing (moduleNameFor)
 import Review.Project exposing (addDependency)
 import Review.Test
@@ -12,6 +13,7 @@ import ReviewPipelineStyles
         ( PipelineRule
         , andCallThem
         , andReportCustomError
+        , andTryToFixThemBy
         , exceptThoseThat
         , forbid
         , leftCompositionPipelines
@@ -22,6 +24,7 @@ import ReviewPipelineStyles
         , rule
         , that
         )
+import ReviewPipelineStyles.Fixes exposing (eliminatingInputStep)
 import ReviewPipelineStyles.Predicates
     exposing
         ( aDataStructure
@@ -35,6 +38,7 @@ import ReviewPipelineStyles.Predicates
         , haveAParentNotSeparatedBy
         , haveASimpleInputStep
         , haveAnInputStepOf
+        , haveAnUnnecessaryInputStep
         , haveFewerStepsThan
         , haveMoreNestedParentsThan
         , haveMoreStepsThan
@@ -62,7 +66,14 @@ all =
         , nestingTests
         , testUsageTests
         , customPredicateTests
+        , fixTests
         ]
+
+
+fixTests : Test
+fixTests =
+    describe "fixes"
+        [ eliminatingInputStepTests ]
 
 
 operatorSpecificityTests : Test
@@ -1051,6 +1062,179 @@ b = A.foo |> bar
                         )
                     |> Review.Test.expectErrors
                         [ expectFail """foo |> bar |> baz""" ]
+        ]
+
+
+eliminatingInputStepTests : Test
+eliminatingInputStepTests =
+    describe "eliminatingInputStep"
+        [ test "eliminates simple input right" <|
+            \() ->
+                let
+                    cases : List String
+                    cases =
+                        [ """() |> unit |> bar"""
+                        , """func |> name |> bar"""
+                        , """(+) |> prefixOperator |> bar"""
+                        , """117 |> intLiteral |> bar"""
+                        , """0x0F |> hexLiteral |> bar"""
+                        , """1.3 |> floatLiteral |> bar"""
+                        , """"abc" |> stringLiteral |> bar"""
+                        , """'字' |> charLiteral |> bar"""
+                        , """.field |> recordAccessFunction |> bar"""
+                        , """(t1, t2) |> simpleTuple |> bar"""
+                        , """(t1, foo bar) |> notSimpleTuple |> bar"""
+                        , """{field = "simple"} |> simpleRecord |> bar"""
+                        , """{field = foo bar} |> notSimpleRecord |> bar"""
+                        , """[ "a" ] |> simpleList |> bar"""
+                        , """[ foo bar ] |> notSimpleList |> bar"""
+                        , """name.field |> simpleRecordAccess |> bar"""
+                        , """(foo bar).field |> notSimpleRecordAccess |> bar"""
+                        , """-int |> simpleNegation |> bar"""
+                        , """-(foo bar) |> notSimpleNegation |> bar"""
+                        , """(a) |> simpleParentheses |> bar"""
+                        , """(foo bar) |> notSimpleParentheses |> bar"""
+                        , """{rec | update = 0} |> recordUpdateNeverSimple |> bar"""
+                        , """(if True then 0 else 1) |> ifBlockNeverSimple |> bar"""
+                        , """(let foo = bar in baz) |> letBlockNeverSimple |> bar"""
+                        , """(case foo of _ -> 0) |> caseNeverSimple |> bar"""
+                        , """(\\i -> i + 1) |> lambdaNeverSimple |> bar"""
+                        ]
+
+                    fixes : List String
+                    fixes =
+                        [ """unit () |> bar"""
+                        , """name func |> bar"""
+                        , """prefixOperator (+) |> bar"""
+                        , """intLiteral 117 |> bar"""
+                        , """hexLiteral 0x0F |> bar"""
+                        , """floatLiteral 1.3 |> bar"""
+                        , """stringLiteral "abc" |> bar"""
+                        , """charLiteral '字' |> bar"""
+                        , """recordAccessFunction .field |> bar"""
+                        , """simpleTuple (t1, t2) |> bar"""
+                        , """notSimpleTuple (t1, foo bar) |> bar"""
+                        , """simpleRecord {field = "simple"} |> bar"""
+                        , """notSimpleRecord {field = foo bar} |> bar"""
+                        , """simpleList [ "a" ] |> bar"""
+                        , """notSimpleList [ foo bar ] |> bar"""
+                        , """simpleRecordAccess name.field |> bar"""
+                        , """notSimpleRecordAccess (foo bar).field |> bar"""
+                        , """simpleNegation -int |> bar"""
+                        , """notSimpleNegation -(foo bar) |> bar"""
+                        , """simpleParentheses (a) |> bar"""
+                        , """notSimpleParentheses (foo bar) |> bar"""
+                        , """recordUpdateNeverSimple {rec | update = 0} |> bar"""
+                        , """ifBlockNeverSimple (if True then 0 else 1) |> bar"""
+                        , """letBlockNeverSimple (let foo = bar in baz) |> bar"""
+                        , """caseNeverSimple (case foo of _ -> 0) |> bar"""
+                        , """lambdaNeverSimple (\\i -> i + 1) |> bar"""
+                        ]
+                in
+                List.map2
+                    (\c f ->
+                        let
+                            header : String
+                            header =
+                                "module A exposing (..)\na = "
+                        in
+                        \() ->
+                            (header ++ c)
+                                |> Review.Test.run
+                                    (rule
+                                        [ forbid rightPizzaPipelines
+                                            |> that haveAnUnnecessaryInputStep
+                                            |> andTryToFixThemBy eliminatingInputStep
+                                            |> fail
+                                        ]
+                                    )
+                                |> Review.Test.expectErrors
+                                    [ expectFail c
+                                        |> Review.Test.whenFixed (header ++ f)
+                                    ]
+                    )
+                    cases
+                    fixes
+                    |> Expect.all
+                    |> (|>) ()
+        , test "eliminates simple input left and parenthetical" <|
+            \() ->
+                let
+                    cases : List String
+                    cases =
+                        [ """bar <| unit <| ()"""
+                        , """bar <| name <| func"""
+                        , """bar <|
+                            name
+                               <|  [ 1,
+                               2
+    ,3]"""
+                        , """baz (bar (foo))"""
+                        , """baz (bar ( foo    )
+                            )"""
+                        ]
+
+                    fixes : List String
+                    fixes =
+                        [ """bar <| unit ()"""
+                        , """bar <| name func"""
+                        , """bar <|
+                            name [ 1,
+                               2
+    ,3]"""
+                        , """baz (bar foo)"""
+                        , """baz (bar foo
+                            )"""
+                        ]
+                in
+                List.map2
+                    (\c f ->
+                        let
+                            header : String
+                            header =
+                                "module A exposing (..)\na = "
+                        in
+                        \() ->
+                            (header ++ c)
+                                |> Review.Test.run
+                                    (rule
+                                        [ forbid leftPizzaPipelines
+                                            |> that haveAnUnnecessaryInputStep
+                                            |> andTryToFixThemBy eliminatingInputStep
+                                            |> fail
+                                        , forbid parentheticalApplicationPipelines
+                                            |> that haveAnUnnecessaryInputStep
+                                            |> andTryToFixThemBy eliminatingInputStep
+                                            |> fail
+                                        ]
+                                    )
+                                |> Review.Test.expectErrors
+                                    [ expectFail c
+                                        |> Review.Test.whenFixed (header ++ f)
+                                    ]
+                    )
+                    cases
+                    fixes
+                    |> Expect.all
+                    |> (|>) ()
+        , test "unfixable cases" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo bar |> applicationNeverSimple
+b = 1 + 2 |> operatorApplicationNeverSimple
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> andTryToFixThemBy eliminatingInputStep
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo bar |> applicationNeverSimple"""
+                        , expectFail """1 + 2 |> operatorApplicationNeverSimple"""
+                        ]
         ]
 
 
