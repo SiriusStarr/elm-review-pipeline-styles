@@ -1,5 +1,5 @@
 module ReviewPipelineStyles.Fixes exposing
-    ( eliminatingInputStep
+    ( eliminatingInputStep, makingMultiline
     , PipelineFix
     )
 
@@ -12,7 +12,7 @@ way, i.e. that the fix will not generate invalid code.
 
 ## Fixes
 
-@docs eliminatingInputStep
+@docs eliminatingInputStep, makingMultiline
 
 
 ### Types
@@ -27,7 +27,7 @@ work with them directly.
 import Elm.Syntax.Node as Node
 import Internal.Types as Types exposing (Predicate(..))
 import Review.Fix as Fix
-import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, haveAnUnnecessaryInputStep)
+import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
 
 
 {-| A means of fixing a pipeline, to (presumably) bring it stylistically inline
@@ -56,8 +56,8 @@ or the like.
 -}
 eliminatingInputStep : PipelineFix ApplicationPipeline
 eliminatingInputStep =
-    Types.PipelineFix
-        (\lookupTable extractSource ({ steps } as pipeline) ->
+    Types.PipelineFix <|
+        \lookupTable extractSource ({ steps } as pipeline) ->
             let
                 matchesPredicate : Predicate ApplicationPipeline -> Bool
                 matchesPredicate (Predicate p) =
@@ -81,4 +81,39 @@ eliminatingInputStep =
 
             else
                 Nothing
-        )
+
+
+{-| Force a pipeline to span a new line with each step. This will not run on
+pipelines that already span multiple lines. It is thus recommended that you
+combine it with a negated
+[`ReviewPipelineStyles.Predicates.spanMultipleLines`](ReviewPipelineStyles-Predicates#spanMultipleLines)
+or the like.
+
+This fix (as with most) relies on `elm-format` to clean up the resulting code.
+
+-}
+makingMultiline : PipelineFix pipelineType
+makingMultiline =
+    Types.PipelineFix <|
+        \lookupTable _ ({ steps } as pipeline) ->
+            let
+                matchesPredicate : Predicate ApplicationPipeline -> Bool
+                matchesPredicate (Predicate p) =
+                    p lookupTable pipeline
+            in
+            if matchesPredicate spanMultipleLines then
+                Nothing
+
+            else
+                let
+                    break : String
+                    break =
+                        List.map (\{ node } -> (Node.range node).start.column) steps
+                            |> List.minimum
+                            |> Maybe.withDefault 1
+                            |> (\i -> "\n" ++ String.repeat (i - 1) " ")
+                in
+                List.map
+                    (\{ node } -> Fix.insertAt (Node.range node).end break)
+                    steps
+                    |> Just
