@@ -1,5 +1,5 @@
 module ReviewPipelineStyles.Fixes exposing
-    ( eliminatingInputStep, makingMultiline, makingSingleLine
+    ( eliminatingInputStep, makingMultiline, makingSingleLine, convertingToRightPizza, convertingToLeftPizza, convertingToParentheticalApplication, convertingToRightComposition, convertingToLeftComposition
     , PipelineFix
     )
 
@@ -12,7 +12,7 @@ way, i.e. that the fix will not generate invalid code.
 
 ## Fixes
 
-@docs eliminatingInputStep, makingMultiline, makingSingleLine
+@docs eliminatingInputStep, makingMultiline, makingSingleLine, convertingToRightPizza, convertingToLeftPizza, convertingToParentheticalApplication, convertingToRightComposition, convertingToLeftComposition
 
 
 ### Types
@@ -28,7 +28,7 @@ import Elm.Syntax.Node as Node
 import Elm.Syntax.Range exposing (Range)
 import Internal.Types as Types exposing (Operator(..), Pipeline, Predicate(..))
 import Review.Fix as Fix
-import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
+import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
 
 
 {-| A means of fixing a pipeline, to (presumably) bring it stylistically inline
@@ -161,6 +161,96 @@ makingSingleLine =
 
                 else
                     Nothing
+
+            else
+                Nothing
+
+
+{-| Convert an application pipeline to right function application (`|>`). This
+requires there to be no internal comments (as they would be clobbered) and to
+not already be a right function application pipeline.
+-}
+convertingToRightPizza : PipelineFix ApplicationPipeline
+convertingToRightPizza =
+    Types.PipelineFix <|
+        \_ extractSource ({ operator, internalComments } as pipeline) ->
+            if operator /= RightPizza && List.isEmpty internalComments then
+                Just
+                    [ writeAs extractSource RightPizza pipeline
+                        |> Fix.replaceRangeBy (Node.range pipeline.node)
+                    ]
+
+            else
+                Nothing
+
+
+{-| Convert an application pipeline to left function application (`<|`). This
+requires there to be no internal comments (as they would be clobbered) and to
+not already be a left function application pipeline.
+-}
+convertingToLeftPizza : PipelineFix ApplicationPipeline
+convertingToLeftPizza =
+    Types.PipelineFix <|
+        \_ extractSource ({ operator, internalComments } as pipeline) ->
+            if operator /= LeftPizza && List.isEmpty internalComments then
+                Just
+                    [ writeAs extractSource LeftPizza pipeline
+                        |> Fix.replaceRangeBy (Node.range pipeline.node)
+                    ]
+
+            else
+                Nothing
+
+
+{-| Convert an application pipeline to parenthetical function application. This
+requires there to be no internal comments (as they would be clobbered) and to
+not already be a parenthetical function application pipeline.
+-}
+convertingToParentheticalApplication : PipelineFix ApplicationPipeline
+convertingToParentheticalApplication =
+    Types.PipelineFix <|
+        \_ extractSource ({ operator, internalComments } as pipeline) ->
+            if operator /= ParentheticalApplication && List.isEmpty internalComments then
+                Just
+                    [ writeAs extractSource ParentheticalApplication pipeline
+                        |> Fix.replaceRangeBy (Node.range pipeline.node)
+                    ]
+
+            else
+                Nothing
+
+
+{-| Convert a composition pipeline to right function composition (`>>`). This
+requires there to be no internal comments (as they would be clobbered) and to
+not already be a right function composition pipeline.
+-}
+convertingToRightComposition : PipelineFix CompositionPipeline
+convertingToRightComposition =
+    Types.PipelineFix <|
+        \_ extractSource ({ operator, internalComments } as pipeline) ->
+            if operator /= RightComposition && List.isEmpty internalComments then
+                Just
+                    [ writeAs extractSource RightComposition pipeline
+                        |> Fix.replaceRangeBy (Node.range pipeline.node)
+                    ]
+
+            else
+                Nothing
+
+
+{-| Convert a composition pipeline to left function composition (`<<`). This
+requires there to be no internal comments (as they would be clobbered) and to
+not already be a left function composition pipeline.
+-}
+convertingToLeftComposition : PipelineFix CompositionPipeline
+convertingToLeftComposition =
+    Types.PipelineFix <|
+        \_ extractSource ({ operator, internalComments } as pipeline) ->
+            if operator /= LeftComposition && List.isEmpty internalComments then
+                Just
+                    [ writeAs extractSource LeftComposition pipeline
+                        |> Fix.replaceRangeBy (Node.range pipeline.node)
+                    ]
 
             else
                 Nothing

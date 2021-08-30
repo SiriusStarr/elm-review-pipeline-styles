@@ -24,7 +24,17 @@ import ReviewPipelineStyles
         , rule
         , that
         )
-import ReviewPipelineStyles.Fixes exposing (eliminatingInputStep, makingMultiline, makingSingleLine)
+import ReviewPipelineStyles.Fixes
+    exposing
+        ( convertingToLeftComposition
+        , convertingToLeftPizza
+        , convertingToParentheticalApplication
+        , convertingToRightComposition
+        , convertingToRightPizza
+        , eliminatingInputStep
+        , makingMultiline
+        , makingSingleLine
+        )
 import ReviewPipelineStyles.Predicates
     exposing
         ( aDataStructure
@@ -78,6 +88,11 @@ fixTests =
         [ eliminatingInputStepTests
         , makingMultilineTests
         , makingSingleLineTests
+        , convertingToRightPizzaTests
+        , convertingToLeftPizzaTests
+        , convertingToParentheticalApplicationTest
+        , convertingToRightCompositionTests
+        , convertingToLeftCompositionTests
         ]
 
 
@@ -1500,6 +1515,499 @@ c = foo
     -- bar
     |> bar
     |> baz"""
+                        ]
+        ]
+
+
+convertingToRightPizzaTests : Test
+convertingToRightPizzaTests =
+    describe "convertingToRightPizza"
+        [ test "converts pipelines to right-pizza" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo <| bar <| baz
+b =
+    foo (bar (baz (i (j k))))
+c =
+    foo  |> bar    |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                -- This should fail
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            , forbid leftPizzaPipelines
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo <| bar <| baz"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz |> bar |> foo
+b =
+    foo (bar (baz (i (j k))))
+c =
+    foo  |> bar    |> baz
+"""
+                        , expectFail "foo (bar (baz (i (j k))))"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo <| bar <| baz
+b =
+    j k |> i |> baz |> bar |> foo
+c =
+    foo  |> bar    |> baz
+"""
+                        , expectFail "foo  |> bar    |> baz"
+                        ]
+        , test "cannot fix with comments, but handles multiline" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo <| bar
+    foo
+       <| baz
+b =
+    foo (bar (baz
+     (i j
+      (j k))))
+c =
+    foo  <| bar -- Comments!
+    <| baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo <| bar
+    foo
+       <| baz"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz |> bar
+    foo |> foo
+b =
+    foo (bar (baz
+     (i j
+      (j k))))
+c =
+    foo  <| bar -- Comments!
+    <| baz
+"""
+                        , expectFail """foo (bar (baz
+     (i j
+      (j k))))"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo <| bar
+    foo
+       <| baz
+b =
+    j k |> i j |> baz |> bar |> foo
+c =
+    foo  <| bar -- Comments!
+    <| baz
+"""
+                        , expectFail "foo  <| bar -- Comments!\n    <| baz"
+                        ]
+        ]
+
+
+convertingToLeftPizzaTests : Test
+convertingToLeftPizzaTests =
+    describe "convertingToLeftPizza"
+        [ test "converts pipelines to left-pizza" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo <| bar   <| baz
+b =
+    foo (bar (baz (i (j k))))
+c =
+    foo  |> bar    |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> andTryToFixThemBy convertingToLeftPizza
+                                |> fail
+                            , forbid leftPizzaPipelines
+                                -- This should fail
+                                |> andTryToFixThemBy convertingToLeftPizza
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> andTryToFixThemBy convertingToLeftPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo <| bar   <| baz"
+                        , expectFail "foo (bar (baz (i (j k))))"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo <| bar   <| baz
+b =
+    foo <| bar <| baz <| i <| j k
+c =
+    foo  |> bar    |> baz
+"""
+                        , expectFail "foo  |> bar    |> baz"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo <| bar   <| baz
+b =
+    foo (bar (baz (i (j k))))
+c =
+    baz <| bar <| foo
+"""
+                        ]
+        , test "cannot fix with comments, but handles multiline" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar
+    foo
+       |> baz
+b =
+    foo (bar (baz
+     (i j
+      (j k))))
+c =
+    foo  |> bar -- Comments!
+    |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> andTryToFixThemBy convertingToLeftPizza
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> andTryToFixThemBy convertingToLeftPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar
+    foo
+       |> baz"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz <| bar
+    foo <| foo
+b =
+    foo (bar (baz
+     (i j
+      (j k))))
+c =
+    foo  |> bar -- Comments!
+    |> baz
+"""
+                        , expectFail """foo (bar (baz
+     (i j
+      (j k))))"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo |> bar
+    foo
+       |> baz
+b =
+    foo <| bar <| baz <| i j <| j k
+c =
+    foo  |> bar -- Comments!
+    |> baz
+"""
+                        , expectFail """foo  |> bar -- Comments!
+    |> baz"""
+                        ]
+        ]
+
+
+convertingToParentheticalApplicationTest : Test
+convertingToParentheticalApplicationTest =
+    describe "convertingToParentheticalApplication"
+        [ test "converts pipelines to parenthetical application" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo <| bar   <| baz
+b =
+    foo (bar   ( baz (i (j k))))
+c =
+    foo  |> bar    |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> andTryToFixThemBy convertingToParentheticalApplication
+                                |> fail
+                            , forbid leftPizzaPipelines
+                                |> andTryToFixThemBy convertingToParentheticalApplication
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                -- This should fail
+                                |> andTryToFixThemBy convertingToParentheticalApplication
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo (bar   ( baz (i (j k))))"
+                        , expectFail "foo <| bar   <| baz"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo (bar (baz))
+b =
+    foo (bar   ( baz (i (j k))))
+c =
+    foo  |> bar    |> baz
+"""
+                        , expectFail "foo  |> bar    |> baz"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo <| bar   <| baz
+b =
+    foo (bar   ( baz (i (j k))))
+c =
+    baz (bar (foo))
+"""
+                        ]
+        , test "cannot fix with comments, but handles multiline" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar
+    foo
+       |> baz
+b =
+    foo |> bar
+    -- Comments!
+    foo
+       |> baz
+c =
+    foo  <| bar
+    <| baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> andTryToFixThemBy convertingToParentheticalApplication
+                                |> fail
+                            , forbid leftPizzaPipelines
+                                |> andTryToFixThemBy convertingToParentheticalApplication
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar
+    foo
+       |> baz"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz (bar
+    foo (foo))
+b =
+    foo |> bar
+    -- Comments!
+    foo
+       |> baz
+c =
+    foo  <| bar
+    <| baz
+"""
+                        , expectFail """foo  <| bar
+    <| baz"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo |> bar
+    foo
+       |> baz
+b =
+    foo |> bar
+    -- Comments!
+    foo
+       |> baz
+c =
+    foo (bar (baz))
+"""
+                        , expectFail """foo |> bar
+    -- Comments!
+    foo
+       |> baz"""
+                        ]
+        ]
+
+
+convertingToRightCompositionTests : Test
+convertingToRightCompositionTests =
+    describe "convertingToRightComposition"
+        [ test "converts pipelines to right composition" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo    >> bar >> baz
+b =
+    foo << bar  << baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightCompositionPipelines
+                                -- This should fail
+                                |> andTryToFixThemBy convertingToRightComposition
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> andTryToFixThemBy convertingToRightComposition
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo << bar  << baz"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    foo    >> bar >> baz
+b =
+    baz >> bar >> foo
+"""
+                        , expectFail "foo    >> bar >> baz"
+                        ]
+        , test "cannot fix with comments, but handles multiline" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo << bar
+    foo
+       << baz
+b =
+    foo  << bar -- Comments!
+    << baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftCompositionPipelines
+                                |> andTryToFixThemBy convertingToRightComposition
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo << bar
+    foo
+       << baz"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz >> bar
+    foo >> foo
+b =
+    foo  << bar -- Comments!
+    << baz
+"""
+                        , expectFail """foo  << bar -- Comments!
+    << baz"""
+                        ]
+        ]
+
+
+convertingToLeftCompositionTests : Test
+convertingToLeftCompositionTests =
+    describe "convertingToLeftComposition"
+        [ test "converts pipelines to left composition" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo    >> bar >> baz
+b =
+    foo << bar  << baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightCompositionPipelines
+                                |> andTryToFixThemBy convertingToLeftComposition
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                -- This should fail
+                                |> andTryToFixThemBy convertingToLeftComposition
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "foo    >> bar >> baz"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz << bar << foo
+b =
+    foo << bar  << baz
+"""
+                        , expectFail "foo << bar  << baz"
+                        ]
+        , test "cannot fix with comments, but handles multiline" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo >> bar
+    foo
+       >> baz
+b =
+    foo  >> bar -- Comments!
+    >> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightCompositionPipelines
+                                |> andTryToFixThemBy convertingToLeftComposition
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo >> bar
+    foo
+       >> baz"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    baz << bar
+    foo << foo
+b =
+    foo  >> bar -- Comments!
+    >> baz
+"""
+                        , expectFail """foo  >> bar -- Comments!
+    >> baz"""
                         ]
         ]
 
