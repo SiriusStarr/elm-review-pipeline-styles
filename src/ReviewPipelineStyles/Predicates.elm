@@ -244,11 +244,11 @@ aDataStructure (NestedWithin r) =
 
 
 {-| Determine whether the pipeline has a simple input or not. This is somewhat
-subjective, of course, so use [`haveAnInputStepOf`](#haveAnInputStepOf) if you want to customize its
-behavior. A pipeline is considered to have a simple input if its input is **40
-characters or less**, is only a **single line**, and also:
-
-Is one of the following:
+subjective, of course, so use [`haveAnInputStepOf`](#haveAnInputStepOf) if you
+want to customize its behavior. A pipeline is considered to have a simple input
+if it [has an unnecessary input](#haveAnUnnecessaryInputStep), if its input is
+**40 characters or less**, is only a **single line**, and is one of the
+following:
 
     -- Unit
     ()
@@ -406,12 +406,17 @@ haveASimpleInputStep =
                         GLSLExpression _ ->
                             False
                    )
+
+        (Predicate unnecessaryInput) =
+            haveAnUnnecessaryInputStep
     in
-    predicate <|
-        \{ steps } ->
-            List.head steps
-                |> Maybe.map (go << .node)
-                |> Maybe.withDefault False
+    predicateWithLookupTable <|
+        \l ({ steps } as p) ->
+            unnecessaryInput l p
+                && (List.head steps
+                        |> Maybe.map (go << .node)
+                        |> Maybe.withDefault False
+                   )
 
 
 {-| Determine whether the pipeline has an input step that simply isn't
@@ -422,90 +427,112 @@ the like but will suffice for finding most simple cases.
 
 Note that this will potentially flag quite complex inputs, so you might want to
 use [`haveASimpleInputStep`](#haveASimpleInputStep) instead, since that only
-detects visually/cognitively simple inputs.
+detects visually simple inputs.
 
 -}
 haveAnUnnecessaryInputStep : Predicate ApplicationPipeline
 haveAnUnnecessaryInputStep =
     predicate <|
         \{ steps } ->
-            List.head steps
-                |> Maybe.map
-                    (\h ->
-                        case Node.value h.node of
-                            UnitExpr ->
-                                True
+            case steps of
+                s1 :: s2 :: _ ->
+                    let
+                        firstNoApplication : Bool
+                        firstNoApplication =
+                            case Node.value s1.node of
+                                Application _ ->
+                                    False
 
-                            FunctionOrValue _ _ ->
-                                True
+                                OperatorApplication _ _ _ _ ->
+                                    False
 
-                            PrefixOperator _ ->
-                                True
+                                IfBlock _ _ _ ->
+                                    False
 
-                            Operator _ ->
-                                True
+                                LetExpression _ ->
+                                    False
 
-                            Integer _ ->
-                                True
+                                CaseExpression _ ->
+                                    False
 
-                            Hex _ ->
-                                True
+                                LambdaExpression _ ->
+                                    False
 
-                            Floatable _ ->
-                                True
+                                GLSLExpression _ ->
+                                    False
 
-                            Literal _ ->
-                                True
+                                _ ->
+                                    -- These are all simple values that can be fed right into a pipeline
+                                    -- UnitExpr
+                                    -- FunctionOrValue
+                                    -- PrefixOperator
+                                    -- Operator
+                                    -- Integer
+                                    -- Hex
+                                    -- Floatable
+                                    -- Literal
+                                    -- CharLiteral
+                                    -- RecordAccessFunction
+                                    -- TupledExpression
+                                    -- RecordExpr
+                                    -- ListExpr
+                                    -- Negation
+                                    -- ParenthesizedExpression
+                                    -- RecordAccess
+                                    -- RecordUpdateExpression
+                                    True
 
-                            CharLiteral _ ->
-                                True
+                        secondCanBeApplied : Bool
+                        secondCanBeApplied =
+                            case Node.value s2.node of
+                                -- Definitely!
+                                Application _ ->
+                                    True
 
-                            RecordAccessFunction _ ->
-                                True
+                                FunctionOrValue _ _ ->
+                                    True
 
-                            TupledExpression _ ->
-                                True
+                                PrefixOperator _ ->
+                                    True
 
-                            RecordExpr _ ->
-                                True
+                                -- Makes sense, but could maybe be written better
+                                RecordAccessFunction _ ->
+                                    True
 
-                            ListExpr _ ->
-                                True
+                                -- Sure, if it compiled before
+                                ParenthesizedExpression _ ->
+                                    True
 
-                            Negation _ ->
-                                True
+                                RecordAccess _ _ ->
+                                    True
 
-                            ParenthesizedExpression _ ->
-                                True
+                                _ ->
+                                    -- * Only if it was in parentheses (which it isn't)
+                                    -- OperatorApplication
+                                    -- IfBlock
+                                    -- LetExpression
+                                    -- CaseExpression
+                                    -- LambdaExpression
+                                    -- * Doesn't seem right to me
+                                    -- UnitExpr
+                                    -- Operator
+                                    -- Integer
+                                    -- Hex
+                                    -- Floatable
+                                    -- GLSLExpression
+                                    -- Literal
+                                    -- CharLiteral
+                                    -- TupledExpression
+                                    -- RecordExpr
+                                    -- ListExpr
+                                    -- Negation
+                                    -- RecordUpdateExpression
+                                    False
+                    in
+                    firstNoApplication && secondCanBeApplied
 
-                            RecordAccess _ _ ->
-                                True
-
-                            RecordUpdateExpression _ _ ->
-                                True
-
-                            Application _ ->
-                                False
-
-                            OperatorApplication _ _ _ _ ->
-                                False
-
-                            IfBlock _ _ _ ->
-                                False
-
-                            LetExpression _ ->
-                                False
-
-                            CaseExpression _ ->
-                                False
-
-                            LambdaExpression _ ->
-                                False
-
-                            GLSLExpression _ ->
-                                False
-                    )
-                |> Maybe.withDefault False
+                _ ->
+                    False
 
 
 {-| Like [`haveASimpleInputStep`](#haveASimpleInputStep) but with a user-providable

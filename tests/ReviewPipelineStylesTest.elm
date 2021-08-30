@@ -574,6 +574,22 @@ def\"\"\"
     |> foo1
     |> bar1
     |> baz1""" ]
+        , test "things that cannot be directly applied to are not simple" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo << bar <| baz
+a = (foo << bar) <| baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that haveASimpleInputStep
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "(foo << bar) <| baz" ]
         , test "some things are simple and some are not" <|
             \() ->
                 """module A exposing (..)
