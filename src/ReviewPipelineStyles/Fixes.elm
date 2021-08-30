@@ -1,5 +1,6 @@
 module ReviewPipelineStyles.Fixes exposing
     ( eliminatingInputStep, makingMultiline, makingSingleLine, convertingToRightPizza, convertingToLeftPizza, convertingToParentheticalApplication, convertingToRightComposition, convertingToLeftComposition
+    , fix, fixWithLookupTable
     , PipelineFix
     )
 
@@ -15,6 +16,21 @@ way, i.e. that the fix will not generate invalid code.
 @docs eliminatingInputStep, makingMultiline, makingSingleLine, convertingToRightPizza, convertingToLeftPizza, convertingToParentheticalApplication, convertingToRightComposition, convertingToLeftComposition
 
 
+## Custom Fixes
+
+If you need fixes beyond what is provided above, you can create them manually
+by writing a function of type
+`(Range -> String) -> Pipeline -> Maybe (List Fix)` or
+`ModuleNameLookupTable -> (Range -> String) -> Pipeline -> Maybe (List Fix)` and
+using one of the functions below.
+
+Use the functions in
+[Getting Information About Pipelines](ReviewPipelineStyles-Predicates#getting-information-about-pipelines)
+to build your custom fix.
+
+@docs fix, fixWithLookupTable
+
+
 ### Types
 
 These are exposed only for the sake of type annotations; you shouldn't need to
@@ -26,9 +42,10 @@ work with them directly.
 
 import Elm.Syntax.Node as Node
 import Elm.Syntax.Range exposing (Range)
-import Internal.Types as Types exposing (Operator(..), Pipeline, Predicate(..))
-import Review.Fix as Fix
-import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
+import Internal.Types as Types exposing (Operator(..), Predicate(..))
+import Review.Fix as Fix exposing (Fix)
+import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
+import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Pipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
 
 
 {-| A means of fixing a pipeline, to (presumably) bring it stylistically inline
@@ -57,7 +74,7 @@ or the like.
 -}
 eliminatingInputStep : PipelineFix ApplicationPipeline
 eliminatingInputStep =
-    Types.PipelineFix <|
+    fixWithLookupTable <|
         \lookupTable extractSource ({ steps } as pipeline) ->
             let
                 matchesPredicate : Predicate ApplicationPipeline -> Bool
@@ -95,7 +112,7 @@ This fix (as with most) relies on `elm-format` to clean up the resulting code.
 -}
 makingMultiline : PipelineFix pipelineType
 makingMultiline =
-    Types.PipelineFix <|
+    fixWithLookupTable <|
         \lookupTable _ ({ steps } as pipeline) ->
             let
                 matchesPredicate : Predicate ApplicationPipeline -> Bool
@@ -131,7 +148,7 @@ or the like.
 -}
 makingSingleLine : PipelineFix pipelineType
 makingSingleLine =
-    Types.PipelineFix <|
+    fixWithLookupTable <|
         \lookupTable extractSource ({ steps, operator, internalComments } as pipeline) ->
             let
                 matchesPredicate : Predicate ApplicationPipeline -> Bool
@@ -172,8 +189,8 @@ not already be a right function application pipeline.
 -}
 convertingToRightPizza : PipelineFix ApplicationPipeline
 convertingToRightPizza =
-    Types.PipelineFix <|
-        \_ extractSource ({ operator, internalComments } as pipeline) ->
+    fix <|
+        \extractSource ({ operator, internalComments } as pipeline) ->
             if operator /= RightPizza && List.isEmpty internalComments then
                 Just
                     [ writeAs extractSource RightPizza pipeline
@@ -190,8 +207,8 @@ not already be a left function application pipeline.
 -}
 convertingToLeftPizza : PipelineFix ApplicationPipeline
 convertingToLeftPizza =
-    Types.PipelineFix <|
-        \_ extractSource ({ operator, internalComments } as pipeline) ->
+    fix <|
+        \extractSource ({ operator, internalComments } as pipeline) ->
             if operator /= LeftPizza && List.isEmpty internalComments then
                 Just
                     [ writeAs extractSource LeftPizza pipeline
@@ -208,8 +225,8 @@ not already be a parenthetical function application pipeline.
 -}
 convertingToParentheticalApplication : PipelineFix ApplicationPipeline
 convertingToParentheticalApplication =
-    Types.PipelineFix <|
-        \_ extractSource ({ operator, internalComments } as pipeline) ->
+    fix <|
+        \extractSource ({ operator, internalComments } as pipeline) ->
             if operator /= ParentheticalApplication && List.isEmpty internalComments then
                 Just
                     [ writeAs extractSource ParentheticalApplication pipeline
@@ -226,8 +243,8 @@ not already be a right function composition pipeline.
 -}
 convertingToRightComposition : PipelineFix CompositionPipeline
 convertingToRightComposition =
-    Types.PipelineFix <|
-        \_ extractSource ({ operator, internalComments } as pipeline) ->
+    fix <|
+        \extractSource ({ operator, internalComments } as pipeline) ->
             if operator /= RightComposition && List.isEmpty internalComments then
                 Just
                     [ writeAs extractSource RightComposition pipeline
@@ -244,8 +261,8 @@ not already be a left function composition pipeline.
 -}
 convertingToLeftComposition : PipelineFix CompositionPipeline
 convertingToLeftComposition =
-    Types.PipelineFix <|
-        \_ extractSource ({ operator, internalComments } as pipeline) ->
+    fix <|
+        \extractSource ({ operator, internalComments } as pipeline) ->
             if operator /= LeftComposition && List.isEmpty internalComments then
                 Just
                     [ writeAs extractSource LeftComposition pipeline
@@ -285,3 +302,32 @@ writeAs extractSource op { steps } =
         |> orderSteps
         |> String.join concatOp
         |> finalize
+
+
+{-| Create a `PipelineFix` from a function that takes a source code extractor
+and a `Pipeline` and maybe returns a list of fixes. Needless to say, this is
+dangerous, as it is possible to generate invalid code if you are not careful.
+
+If you think a generally useful fix is missing, please open an issue or PR on
+Github:
+<https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
+-}
+fix : ((Range -> String) -> Pipeline -> Maybe (List Fix)) -> PipelineFix pipelineType
+fix =
+    Types.PipelineFix << always
+
+
+{-| Create a `PipelineFix` from a function that takes a `ModuleNameLookupTable`,
+source code extractor, and a `Pipeline` and maybe returns a list of fixes.
+Needless to say, this is dangerous, as it is possible to generate invalid code
+if you are not careful.
+
+If you think a generally useful fix is missing, please open an issue or PR on
+Github:
+<https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
+-}
+fixWithLookupTable : (ModuleNameLookupTable -> (Range -> String) -> Pipeline -> Maybe (List Fix)) -> PipelineFix pipelineType
+fixWithLookupTable =
+    Types.PipelineFix

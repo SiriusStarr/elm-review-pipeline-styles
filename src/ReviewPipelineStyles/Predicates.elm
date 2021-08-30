@@ -114,7 +114,7 @@ predicates.
 -}
 and : Predicate anyType -> Predicate anyType -> Predicate anyType
 and (Predicate p1) (Predicate p2) =
-    Predicate <| \l p -> p1 l p && p2 l p
+    predicateWithLookupTable <| \l p -> p1 l p && p2 l p
 
 
 {-| Create a `Predicate` that matches pipelines that match either or both of two
@@ -122,22 +122,22 @@ predicates.
 -}
 or : Predicate anyType -> Predicate anyType -> Predicate anyType
 or (Predicate p1) (Predicate p2) =
-    Predicate <| \l p -> p1 l p || p2 l p
+    predicateWithLookupTable <| \l p -> p1 l p || p2 l p
 
 
 {-| Negate a `Predicate`.
 -}
 doNot : Predicate anyType -> Predicate anyType
 doNot (Predicate pred) =
-    Predicate <| \l p -> not <| pred l p
+    predicateWithLookupTable <| \l p -> not <| pred l p
 
 
 {-| Checks whether or not a pipeline spans multiple lines of code.
 -}
 spanMultipleLines : Predicate anyType
 spanMultipleLines =
-    Predicate <|
-        \_ { node } ->
+    predicate <|
+        \{ node } ->
             let
                 range : Range
                 range =
@@ -158,7 +158,7 @@ has length **2** for the purposes of this predicate.
 -}
 haveMoreStepsThan : Int -> Predicate anyType
 haveMoreStepsThan i =
-    Predicate <| \_ { steps } -> List.length steps > i + 1
+    predicate <| \{ steps } -> List.length steps > i + 1
 
 
 {-| Checks whether the length of a pipeline is less than a specified number.
@@ -173,7 +173,7 @@ has length **2** for the purposes of this predicate.
 -}
 haveFewerStepsThan : Int -> Predicate anyType
 haveFewerStepsThan i =
-    Predicate <| \_ { steps } -> List.length steps < i + 1
+    predicate <| \{ steps } -> List.length steps < i + 1
 
 
 {-| Checks whether the pipeline is nested to any degree within another pipeline.
@@ -182,8 +182,8 @@ the other nesting predicates instead.
 -}
 haveAParent : Predicate anyType
 haveAParent =
-    Predicate <|
-        \_ { parents } ->
+    predicate <|
+        \{ parents } ->
             not <| List.isEmpty parents
 
 
@@ -198,7 +198,7 @@ within other pipelines. For example, `haveMoreNestedParentsThan 1` will forbid
 -}
 haveMoreNestedParentsThan : Int -> Predicate anyType
 haveMoreNestedParentsThan n =
-    Predicate <| \_ { parents } -> List.length parents > n
+    predicate <| \{ parents } -> List.length parents > n
 
 
 {-| Checks whether the immediate parent of a pipeline (if one exists) is not
@@ -206,8 +206,8 @@ separated by one of a list of acceptable abstractions.
 -}
 haveAParentNotSeparatedBy : List (NestedWithin -> Bool) -> Predicate anyType
 haveAParentNotSeparatedBy ls =
-    Predicate <|
-        \_ { parents } ->
+    predicate <|
+        \{ parents } ->
             List.head parents
                 |> MaybeX.unwrap True (\( _, n ) -> List.any (\f -> f n) ls)
                 |> not
@@ -407,8 +407,8 @@ haveASimpleInputStep =
                             False
                    )
     in
-    Predicate <|
-        \_ { steps } ->
+    predicate <|
+        \{ steps } ->
             List.head steps
                 |> Maybe.map (go << .node)
                 |> Maybe.withDefault False
@@ -427,8 +427,8 @@ detects visually/cognitively simple inputs.
 -}
 haveAnUnnecessaryInputStep : Predicate ApplicationPipeline
 haveAnUnnecessaryInputStep =
-    Predicate <|
-        \_ { steps } ->
+    predicate <|
+        \{ steps } ->
             List.head steps
                 |> Maybe.map
                     (\h ->
@@ -513,8 +513,8 @@ function to check if an expression is simple.
 -}
 haveAnInputStepOf : (Node Expression -> Bool) -> Predicate anyType
 haveAnInputStepOf pred =
-    Predicate <|
-        \_ { steps } ->
+    predicate <|
+        \{ steps } ->
             List.head steps
                 |> Maybe.map (pred << .node)
                 |> Maybe.withDefault False
@@ -548,7 +548,7 @@ All of the following will "pass" this predicate, and all other `<|`'s will not:
 -}
 separateATestFromItsLambda : Predicate ApplicationPipeline
 separateATestFromItsLambda =
-    Predicate <|
+    predicateWithLookupTable <|
         \lookupTable { operator, steps } ->
             case ( operator, List.map (Node.value << .node) steps ) of
                 ( LeftPizza, [ LambdaExpression _, Application es ] ) ->
@@ -591,13 +591,17 @@ Comments _around_ the pipeline are ignored, e.g.
 -}
 haveInternalComments : Predicate anyType
 haveInternalComments =
-    Predicate <| \_ { internalComments } -> not <| List.isEmpty internalComments
+    predicate <| \{ internalComments } -> not <| List.isEmpty internalComments
 
 
 {-| Given a function of type `Pipeline -> Bool`, create a `Predicate` from it.
 This is only useful if you want to write custom predicates. Note that this will
 allow you to create predicates that match any type of pipeline, so be careful in
 how you use it.
+
+If you think a generally useful predicate is missing, please open an issue or PR
+on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
 -}
 predicate : (Pipeline -> Bool) -> Predicate anyType
 predicate p =
@@ -609,6 +613,10 @@ a `Predicate` from it. This is only useful if you want to write custom
 predicates and are going to need the full module name for expressions in the
 pipeline. Note that this will allow you to create predicates that match any type
 of pipeline, so be careful in how you use it.
+
+If you think a generally useful predicate is missing, please open an issue or PR
+on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
 -}
 predicateWithLookupTable : (ModuleNameLookupTable -> Pipeline -> Bool) -> Predicate anyType
 predicateWithLookupTable =
