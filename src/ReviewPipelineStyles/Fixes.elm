@@ -1,5 +1,5 @@
 module ReviewPipelineStyles.Fixes exposing
-    ( eliminatingInputStep, makingMultiline
+    ( eliminatingInputStep, makingMultiline, makingSingleLine
     , PipelineFix
     )
 
@@ -12,7 +12,7 @@ way, i.e. that the fix will not generate invalid code.
 
 ## Fixes
 
-@docs eliminatingInputStep, makingMultiline
+@docs eliminatingInputStep, makingMultiline, makingSingleLine
 
 
 ### Types
@@ -25,7 +25,8 @@ work with them directly.
 -}
 
 import Elm.Syntax.Node as Node
-import Internal.Types as Types exposing (Predicate(..))
+import Elm.Syntax.Range exposing (Range)
+import Internal.Types as Types exposing (Operator(..), Pipeline, Predicate(..))
 import Review.Fix as Fix
 import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
 
@@ -117,3 +118,80 @@ makingMultiline =
                     (\{ node } -> Fix.insertAt (Node.range node).end break)
                     steps
                     |> Just
+
+
+{-| Force a pipeline onto a single line. This can only run on a very limited
+set of pipelines, due to the possibility of generating invalid code.
+Specifically, for this fix to run, all steps of a pipeline must consist of
+expressions on a single line and no comments may exist in the pipeline (as they
+would get clobbered by the fix). It will, of course, also not run on a pipeline
+that is already on a single line, so it is recommended that you combine it with
+[`ReviewPipelineStyles.Predicates.spanMultipleLines`](ReviewPipelineStyles-Predicates#spanMultipleLines)
+or the like.
+-}
+makingSingleLine : PipelineFix pipelineType
+makingSingleLine =
+    Types.PipelineFix <|
+        \lookupTable extractSource ({ steps, operator, internalComments } as pipeline) ->
+            let
+                matchesPredicate : Predicate ApplicationPipeline -> Bool
+                matchesPredicate (Predicate p) =
+                    p lookupTable pipeline
+            in
+            if matchesPredicate spanMultipleLines then
+                let
+                    allExpressionsSingleLine : Bool
+                    allExpressionsSingleLine =
+                        List.all
+                            (\{ node } ->
+                                let
+                                    r : Range
+                                    r =
+                                        Node.range node
+                                in
+                                r.start.row == r.end.row
+                            )
+                            steps
+                in
+                if List.isEmpty internalComments && allExpressionsSingleLine then
+                    Just
+                        [ writeAs extractSource operator pipeline
+                            |> Fix.replaceRangeBy (Node.range pipeline.node)
+                        ]
+
+                else
+                    Nothing
+
+            else
+                Nothing
+
+
+{-| Rewrite a pipeline as another operator type. Note that case must be taken
+as this does not check that e.g. application is replaced by composition. The
+resulting pipeline will not have line breaks between operators (but of course
+may still be multi-line, if the expressions are).
+-}
+writeAs : (Range -> String) -> Operator () -> Pipeline -> String
+writeAs extractSource op { steps } =
+    let
+        ( concatOp, orderSteps, finalize ) =
+            case op of
+                RightPizza ->
+                    ( " |> ", identity, identity )
+
+                LeftPizza ->
+                    ( " <| ", List.reverse, identity )
+
+                RightComposition ->
+                    ( " >> ", identity, identity )
+
+                LeftComposition ->
+                    ( " << ", List.reverse, identity )
+
+                ParentheticalApplication ->
+                    ( " (", List.reverse, \s -> s ++ String.repeat (List.length steps - 1) ")" )
+    in
+    List.map (\{ node } -> extractSource <| Node.range node) steps
+        |> orderSteps
+        |> String.join concatOp
+        |> finalize

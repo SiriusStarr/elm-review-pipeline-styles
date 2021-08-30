@@ -24,7 +24,7 @@ import ReviewPipelineStyles
         , rule
         , that
         )
-import ReviewPipelineStyles.Fixes exposing (eliminatingInputStep, makingMultiline)
+import ReviewPipelineStyles.Fixes exposing (eliminatingInputStep, makingMultiline, makingSingleLine)
 import ReviewPipelineStyles.Predicates
     exposing
         ( aDataStructure
@@ -77,6 +77,7 @@ fixTests =
     describe "fixes"
         [ eliminatingInputStepTests
         , makingMultilineTests
+        , makingSingleLineTests
         ]
 
 
@@ -1380,6 +1381,125 @@ b = 1 + 2 |>
    |> d"""
                         , expectFail """1 + 2 |>
   operatorApplicationNeverSimple |> b"""
+                        ]
+        ]
+
+
+makingSingleLineTests : Test
+makingSingleLineTests =
+    describe "makingSingleLine"
+        [ test "makes multi-line pipelines single-line" <|
+            \() ->
+                let
+                    cases : List String
+                    cases =
+                        [ """foo
+    |> bar |> baz"""
+                        , """func
+    >> func2
+    >> func 3"""
+                        , """a
+    <| (b b2)
+    <| c"""
+                        , """a
+    << b"""
+                        , """paren
+        (thetical
+            (application pipeline)
+        )"""
+                        ]
+
+                    fixes : List String
+                    fixes =
+                        [ """foo |> bar |> baz"""
+                        , """func >> func2 >> func 3"""
+                        , """a <| (b b2) <| c"""
+                        , """a << b"""
+                        , """paren (thetical (application pipeline))"""
+                        ]
+                in
+                List.map2
+                    (\c f ->
+                        let
+                            header : String
+                            header =
+                                "module A exposing (..)\na = "
+                        in
+                        \() ->
+                            (header ++ c)
+                                |> Review.Test.run
+                                    (rule
+                                        [ forbid rightPizzaPipelines
+                                            |> that spanMultipleLines
+                                            |> andTryToFixThemBy makingSingleLine
+                                            |> fail
+                                        , forbid leftPizzaPipelines
+                                            |> that spanMultipleLines
+                                            |> andTryToFixThemBy makingSingleLine
+                                            |> fail
+                                        , forbid rightCompositionPipelines
+                                            |> that spanMultipleLines
+                                            |> andTryToFixThemBy makingSingleLine
+                                            |> fail
+                                        , forbid leftCompositionPipelines
+                                            |> that spanMultipleLines
+                                            |> andTryToFixThemBy makingSingleLine
+                                            |> fail
+                                        , forbid parentheticalApplicationPipelines
+                                            |> that spanMultipleLines
+                                            |> andTryToFixThemBy makingSingleLine
+                                            |> fail
+                                        ]
+                                    )
+                                |> Review.Test.expectErrors
+                                    [ expectFail c
+                                        |> Review.Test.whenFixed (header ++ f)
+                                    ]
+                    )
+                    cases
+                    fixes
+                    |> Expect.all
+                    |> (|>) ()
+        , test "unfixable cases" <|
+            \() ->
+                """module A exposing (..)
+
+a = foo
+    bar
+   |> applicationNeverSimple |> c
+   |> d
+b = (case x of
+    1 -> a
+    _ -> b
+    ) |>
+  operatorApplicationNeverSimple |> b
+
+c = foo
+    -- bar
+    |> bar
+    |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> andTryToFixThemBy makingSingleLine
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo
+    bar
+   |> applicationNeverSimple |> c
+   |> d"""
+                        , expectFail """(case x of
+    1 -> a
+    _ -> b
+    ) |>
+  operatorApplicationNeverSimple |> b"""
+                        , expectFail """foo
+    -- bar
+    |> bar
+    |> baz"""
                         ]
         ]
 
