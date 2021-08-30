@@ -5,7 +5,7 @@ rules to forbid pipelines for code-style reasons.
 
 ## Provided rules
 
-* [`ReviewPipelineStyles`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.0.0/ReviewPipelineStyles) - Reports pipelines that are not valid by user-defined rules.
+* [🔧 `ReviewPipelineStyles`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.0.0/ReviewPipelineStyles) - Reports pipelines that are not valid by user-defined rules.
 
 For example, the usage of `<|` or the usage of excessively-long `|>` pipelines.
 
