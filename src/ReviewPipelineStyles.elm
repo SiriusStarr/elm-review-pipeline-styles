@@ -345,7 +345,7 @@ andTryToFixThemBy fix (PipelineRule r) =
         |> exceptThoseThat (haveMoreStepsThan 5)
 
 Note that if `exceptThoseThat` is used multiple times, it is equivalent to using
-[`or`](#or). For example, the following two rules are equivalent:
+[`or`](ReviewPipelineStyles-Predicates#or). For example, the following two rules are equivalent:
 
     forbid leftPizzaPipelines
         |> exceptThoseThat
@@ -375,7 +375,7 @@ predicate.
         |> that spanMultipleLines
 
 Note that if `that` is used multiple times, it is equivalent to using
-[`or`](#or). For example, the following two rules are equivalent:
+[`or`](ReviewPipelineStyles-Predicates#or). For example, the following two rules are equivalent:
 
     forbid rightPizzaPipelines
         |> that
