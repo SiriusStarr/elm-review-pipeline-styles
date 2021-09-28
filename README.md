@@ -22,14 +22,17 @@ This rule works with the following pipeline types:
 ```elm
 module ReviewConfig exposing (config)
 
-import ReviewPipelineStyles
 import Review.Rule exposing (Rule)
+import ReviewPipelineStyles exposing (andCallThem, andReportCustomError, exceptThoseThat, forbid, leftPizzaPipelines, rightPizzaPipelines, that)
+import ReviewPipelineStyles.Predicates exposing (haveMoreStepsThan, separateATestFromItsLambda)
+
 
 config : List Rule
 config =
     [ ReviewPipelineStyles.rule
         [ forbid leftPizzaPipelines
-            |> andCallThem "forbidden <| pipeline"
+            |> exceptThoseThat separateATestFromItsLambda
+            |> andReportCustomError "No left pizza!" [ "Left pizza <| pipelines have been forbidden, except in the \"canonical\" test usage." ]
         , forbid rightPizzaPipelines
             |> that (haveMoreStepsThan 10)
             |> andCallThem "overly long |> pipeline"

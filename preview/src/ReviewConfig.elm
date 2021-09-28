@@ -12,14 +12,14 @@ when inside the directory containing this file.
 -}
 
 import Review.Rule exposing (Rule)
-import ReviewPipelineStyles exposing (leftPizzaPipelines,exceptThoseThat, forbid, andReportCustomError)
+import ReviewPipelineStyles exposing (andReportCustomError, exceptThoseThat, forbid, leftPizzaPipelines)
 import ReviewPipelineStyles.Predicates exposing (separateATestFromItsLambda)
 
 
 config : List Rule
 config =
     [ ReviewPipelineStyles.rule
-        [  forbid leftPizzaPipelines
+        [ forbid leftPizzaPipelines
             |> exceptThoseThat separateATestFromItsLambda
             |> andReportCustomError "No left pizza!" [ "Left pizza <| pipelines have been forbidden, except in the \"canonical\" test usage." ]
         ]
