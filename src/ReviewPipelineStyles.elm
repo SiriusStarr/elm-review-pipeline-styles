@@ -1,5 +1,6 @@
 module ReviewPipelineStyles exposing
     ( rule
+    , noMultilineLeftPizza, noSingleLineRightPizza, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication
     , PipelineRule, forbid, that, exceptThoseThat
     , andCallThem, andReportCustomError
     , andTryToFixThemBy
@@ -8,10 +9,22 @@ module ReviewPipelineStyles exposing
 
 {-|
 
+
+## Review Rule
+
 @docs rule
 
 
-# Config
+## Premade Rules
+
+This package provides some commonly useful rules, as well as how to construct
+them, both so that one might use them as is but also get a sense of how to
+construct one's own `PipelineRule`s.
+
+@docs noMultilineLeftPizza, noSingleLineRightPizza, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication
+
+
+## Config
 
 @docs PipelineRule, forbid, that, exceptThoseThat
 
@@ -42,8 +55,8 @@ import List.Extra as ListX
 import Maybe.Extra as MaybeX
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import Review.Rule as Rule exposing (Error, Rule)
-import ReviewPipelineStyles.Fixes exposing (PipelineFix)
-import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Operator, Predicate, or)
+import ReviewPipelineStyles.Fixes exposing (PipelineFix, convertingToRightPizza, eliminatingInputStep, makingMultiline, makingSingleLine)
+import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Operator, Predicate, and, doNot, haveASimpleInputStep, haveFewerStepsThan, haveMoreStepsThan, or, separateATestFromItsLambda, spanMultipleLines)
 import String exposing (right)
 
 
@@ -154,6 +167,177 @@ type alias Context =
     , extractSource : Range -> String
     , comments : List (Node String)
     }
+
+
+{-| These `PipelineRule`s forbids "left pizza" (`<|`) pipelines that span
+multiple lines, except for those that are used in the common/"canonical" case in
+tests, separating a test from its lambda function. Multiple operator pipelines
+will be converted to "right pizza" (`|>`) pipelines, while single operator ones
+will (try) to be fixed by placing them on a single line.
+
+For example:
+
+    foo <|
+        bar <|
+            baz
+
+    a <|
+        b c
+
+will be converted to
+
+    foo
+        |> bar
+        |> baz
+
+    a <| b c
+
+Configuration:
+
+    noMultilineLeftPizza =
+        [ forbid leftPizzaPipelines
+            |> that
+                (spanMultipleLines
+                    |> and (haveMoreStepsThan 1)
+                )
+            |> andTryToFixThemBy convertingToRightPizza
+            |> andCallThem "multiline <| pipeline with several steps"
+        , forbid leftPizzaPipelines
+            |> that
+                (spanMultipleLines
+                    |> and (haveFewerStepsThan 2)
+                )
+            |> exceptThoseThat separateATestFromItsLambda
+            |> andTryToFixThemBy makingSingleLine
+            |> andCallThem "multiline <| pipeline with one step"
+        ]
+
+-}
+noMultilineLeftPizza : List (PipelineRule ())
+noMultilineLeftPizza =
+    [ forbid leftPizzaPipelines
+        |> that
+            (spanMultipleLines
+                |> and (haveMoreStepsThan 1)
+            )
+        |> andTryToFixThemBy convertingToRightPizza
+        |> andCallThem "multiline <| pipeline with several steps"
+    , forbid leftPizzaPipelines
+        |> that
+            (spanMultipleLines
+                |> and (haveFewerStepsThan 2)
+            )
+        |> exceptThoseThat separateATestFromItsLambda
+        |> andTryToFixThemBy makingSingleLine
+        |> andCallThem "multiline <| pipeline with one step"
+    ]
+
+
+{-| These `PipelineRule`s forbid "right pizza" (`|>`) pipelines that are
+entirely on a single line and tries to fix them by making them multiline.
+
+For example:
+
+    foo |> bar |> baz
+
+will be converted to:
+
+    foo
+        |> bar
+        |> baz
+
+Configuration:
+
+    noSingleLineRightPizza =
+        [ forbid rightPizzaPipelines
+            |> that (doNot spanMultipleLines)
+            |> andTryToFixThemBy makingMultiline
+            |> andCallThem "single line |> pipeline"
+        ]
+
+-}
+noSingleLineRightPizza : List (PipelineRule ())
+noSingleLineRightPizza =
+    [ forbid rightPizzaPipelines
+        |> that (doNot spanMultipleLines)
+        |> andTryToFixThemBy makingMultiline
+        |> andCallThem "single line |> pipeline"
+    ]
+
+
+{-| These `PipelineRule`s forbid "right pizza" (`|>`) and "left pizza" (`<|`)
+pipelines that have "simple" (unnecessary) inputs and tries to fix them by
+eliminating the input step.
+
+For example:
+
+    foo |> bar |> baz
+
+    foo <| bar <| baz
+
+will be converted to:
+
+    bar foo |> baz
+
+    foo <| bar baz
+
+Configuration:
+
+    noPipelinesWithSimpleInputs =
+        [ forbid rightPizzaPipelines
+            |> that haveASimpleInputStep
+            |> andTryToFixThemBy eliminatingInputStep
+            |> andCallThem "|> pipeline with simple input"
+        , forbid leftPizzaPipelines
+            |> that haveASimpleInputStep
+            |> andTryToFixThemBy eliminatingInputStep
+            |> andCallThem "<| pipeline with simple input"
+        ]
+
+-}
+noPipelinesWithSimpleInputs : List (PipelineRule ())
+noPipelinesWithSimpleInputs =
+    [ forbid rightPizzaPipelines
+        |> that haveASimpleInputStep
+        |> andTryToFixThemBy eliminatingInputStep
+        |> andCallThem "|> pipeline with simple input"
+    , forbid leftPizzaPipelines
+        |> that haveASimpleInputStep
+        |> andTryToFixThemBy eliminatingInputStep
+        |> andCallThem "<| pipeline with simple input"
+    ]
+
+
+{-| These `PipelineRule`s forbid parenthetical application with more than a
+single step and tries to fix it by converting it to "right pizza" (`|>`)
+pipeline.
+
+For example:
+
+    foo (bar (baz i))
+
+will be converted to:
+
+    baz i
+        |> bar
+        |> foo
+
+Configuration:
+
+    noRepeatedParentheticalApplication =
+        forbid parentheticalApplicationPipelines
+            |> that (haveMoreStepsThan 1)
+            |> andTryToFixThemBy convertingToRightPizza
+            |> andCallThem "parenthetical application with several steps"
+
+-}
+noRepeatedParentheticalApplication : List (PipelineRule ())
+noRepeatedParentheticalApplication =
+    [ forbid parentheticalApplicationPipelines
+        |> that (haveMoreStepsThan 1)
+        |> andTryToFixThemBy convertingToRightPizza
+        |> andCallThem "parenthetical application with several steps"
+    ]
 
 
 {-| Configuration of this rule is in the form of a list of `PipelineRule`s. It
