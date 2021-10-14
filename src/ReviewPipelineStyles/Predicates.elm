@@ -1,11 +1,14 @@
 module ReviewPipelineStyles.Predicates exposing
     ( and, or, doNot
-    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnInputStepOf, separateATestFromItsLambda, haveInternalComments
+    , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, separateATestFromItsLambda, haveInternalComments
+    , haveAnInputStepThatIs, haveASecondStepThatIs, haveAnyNonInputStepThatIs, haveNonInputStepsThatAreAll, haveAnyStepThatIs, haveStepsThatAreAll
+    , aSemanticallyInfixFunction, aConfusingNonCommutativeFunction, aSimpleStep, onASingleLine, onMultipleLines, stepPredicate, stepPredicateWithLookupTable
     , haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
     , predicate, predicateWithLookupTable
     , getSteps, getParents, getNode, getInternalComments
     , isRightPizza, isLeftPizza, isRightComposition, isLeftComposition, isParentheticalApplication
-    , Predicate, Operator, Pipeline, NestedWithin, ApplicationPipeline, CompositionPipeline
+    , Predicate, StepPredicate, Operator, Pipeline, NestedWithin, ApplicationPipeline, CompositionPipeline
+    , haveAnInputStepOf
     )
 
 {-| This module contains various `Predicate`s that can be used to filter
@@ -14,12 +17,23 @@ pipelines.
 
 ## Combining Predicates
 
+Predicates can be combined and negated using `and`, `or`, and `doNot`.
+
 @docs and, or, doNot
 
 
 ## Predicates
 
-@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnInputStepOf, separateATestFromItsLambda, haveInternalComments
+@docs spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, separateATestFromItsLambda, haveInternalComments
+
+
+## Step Predicates
+
+These predicates allow one to filter based on a specific step of a pipeline.
+
+@docs haveAnInputStepThatIs, haveASecondStepThatIs, haveAnyNonInputStepThatIs, haveNonInputStepsThatAreAll, haveAnyStepThatIs, haveStepsThatAreAll
+
+@docs aSemanticallyInfixFunction, aConfusingNonCommutativeFunction, aSimpleStep, onASingleLine, onMultipleLines, stepPredicate, stepPredicateWithLookupTable
 
 
 ## Nesting Predicates
@@ -60,16 +74,34 @@ if you need to work with them directly.
 These are exposed only for the sake of type annotations; you shouldn't need to
 work with them directly.
 
-@docs Predicate, Operator, Pipeline, NestedWithin, ApplicationPipeline, CompositionPipeline
+@docs Predicate, StepPredicate, Operator, Pipeline, NestedWithin, ApplicationPipeline, CompositionPipeline
+
+
+### Deprecated
+
+These functions have been deprecated and are included only to avoid a breaking
+change.
+
+@docs haveAnInputStepOf
 
 -}
 
 import Elm.Syntax.Expression exposing (Expression(..))
+import Elm.Syntax.ModuleName exposing (ModuleName)
 import Elm.Syntax.Node as Node exposing (Node)
 import Elm.Syntax.Range exposing (Range)
-import Internal.Types as Types exposing (ApplicationPipeline, NestedWithin(..), Operator(..), Pipeline, Predicate(..))
+import Internal.Types as Types
+    exposing
+        ( ApplicationPipeline
+        , NestedWithin(..)
+        , Operator(..)
+        , Pipeline
+        , Predicate(..)
+        , StepPredicate(..)
+        )
 import Maybe.Extra as MaybeX
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable, moduleNameFor)
+import Set exposing (Set)
 
 
 {-| A predicate for filtering pipelines, or a logical combination of them.
@@ -107,6 +139,12 @@ type alias ApplicationPipeline =
 -}
 type alias CompositionPipeline =
     Types.CompositionPipeline
+
+
+{-| A predicate for a single step of a pipeline.
+-}
+type alias StepPredicate =
+    Types.StepPredicate
 
 
 {-| Create a `Predicate` that matches pipelines that match both of two
@@ -244,77 +282,584 @@ aDataStructure (NestedWithin r) =
 
 
 {-| Determine whether the pipeline has a simple input or not. This is somewhat
-subjective, of course, so use [`haveAnInputStepOf`](#haveAnInputStepOf) if you
-want to customize its behavior. A pipeline is considered to have a simple input
-if it [has an unnecessary input](#haveAnUnnecessaryInputStep), if its input is
-**40 characters or less**, is only a **single line**, and is one of the
-following:
+subjective, of course. A pipeline is considered to have a simple input if it
+[has an unnecessary input](#haveAnUnnecessaryInputStep), if its second step is
+not [a semantically-infix function](#aSemanticallyInfixFunction) (like `logBase`
+), and if its input step is [simple](#aSimpleStep).
 
-    -- Unit
-    ()
-        |> foo
+This predicate is constructed as follows:
 
-    -- Name
-    a
-        |> foo
-
-    -- Prefix operator
-    (+)
-        |> foo
-
-    -- Int literal
-    1
-        |> foo
-
-    -- Hex literal
-    0x0F
-        |> foo
-
-    -- Float literal
-    1.5
-        |> foo
-
-    -- String literal
-    "bar"
-        |> foo
-
-    -- Char literal
-    'c'
-        |> foo
-
-    -- Record access function
-    .field
-        |> foo
-
-or is one of the following where all subexpressions are simple:
-
-    -- Tuple
-    ( a, "b" )
-        |> foo
-
-    -- Record
-    { a = "value" }
-        |> foo
-
-    -- List
-    []
-        |> foo
-
-    -- Record access
-    a.field
-        |> foo
-
-    -- Negation
-    elmFormatWontLetThisBeAnExample
-        |> foo
-
-    -- Parentheses
-    elmFormatWontLetThisBeAnExample
-        |> foo
+    haveASimpleInputStep =
+        haveAnUnnecessaryInputStep
+            |> and (doNot <| haveASecondStepThatIs aSemanticallyInfixFunction)
+            |> and (haveAnInputStepThatIs aSimpleStep)
 
 -}
 haveASimpleInputStep : Predicate ApplicationPipeline
 haveASimpleInputStep =
+    haveAnUnnecessaryInputStep
+        |> and (doNot <| haveASecondStepThatIs aSemanticallyInfixFunction)
+        |> and (haveAnInputStepThatIs aSimpleStep)
+
+
+{-| Determine whether the pipeline has an input step that simply isn't
+necessary, e.g. `foo |> bar |> baz`, which may be written as `bar foo |> baz`.
+
+This is not perfectly exhaustive as it does not consider operator precedence and
+the like but will suffice for finding most simple cases.
+
+Note that this will potentially flag quite complex inputs, so you might want to
+use [`haveASimpleInputStep`](#haveASimpleInputStep) instead, since that only
+detects visually simple inputs.
+
+This predicate is constructed as follows:
+
+    haveAnUnnecessaryInputStep =
+        let
+            ableToBeAnArgument =
+                stepPredicate <|
+                    \node ->
+                        case Node.value node of
+                            Application _ ->
+                                False
+
+                            OperatorApplication _ _ _ _ ->
+                                False
+
+                            IfBlock _ _ _ ->
+                                False
+
+                            LetExpression _ ->
+                                False
+
+                            CaseExpression _ ->
+                                False
+
+                            LambdaExpression _ ->
+                                False
+
+                            GLSLExpression _ ->
+                                False
+
+                            _ ->
+                                True
+
+            ableToTakeAnArgument =
+                stepPredicate <|
+                    \node ->
+                        case Node.value node of
+                            Application _ ->
+                                True
+
+                            FunctionOrValue _ _ ->
+                                True
+
+                            PrefixOperator _ ->
+                                True
+
+                            RecordAccessFunction _ ->
+                                True
+
+                            ParenthesizedExpression _ ->
+                                True
+
+                            RecordAccess _ _ ->
+                                True
+
+                            _ ->
+                                False
+        in
+        haveAnInputStepThatIs ableToBeAnArgument
+            |> and (haveASecondStepThatIs ableToTakeAnArgument)
+
+-}
+haveAnUnnecessaryInputStep : Predicate ApplicationPipeline
+haveAnUnnecessaryInputStep =
+    let
+        ableToBeAnArgument : StepPredicate
+        ableToBeAnArgument =
+            stepPredicate <|
+                \node ->
+                    case Node.value node of
+                        Application _ ->
+                            False
+
+                        OperatorApplication _ _ _ _ ->
+                            False
+
+                        IfBlock _ _ _ ->
+                            False
+
+                        LetExpression _ ->
+                            False
+
+                        CaseExpression _ ->
+                            False
+
+                        LambdaExpression _ ->
+                            False
+
+                        GLSLExpression _ ->
+                            False
+
+                        _ ->
+                            -- These are all simple values that can be fed right into a pipeline
+                            -- UnitExpr
+                            -- FunctionOrValue
+                            -- PrefixOperator
+                            -- Operator
+                            -- Integer
+                            -- Hex
+                            -- Floatable
+                            -- Literal
+                            -- CharLiteral
+                            -- RecordAccessFunction
+                            -- TupledExpression
+                            -- RecordExpr
+                            -- ListExpr
+                            -- Negation
+                            -- ParenthesizedExpression
+                            -- RecordAccess
+                            -- RecordUpdateExpression
+                            True
+
+        ableToTakeAnArgument : StepPredicate
+        ableToTakeAnArgument =
+            stepPredicate <|
+                \node ->
+                    case Node.value node of
+                        -- Definitely!
+                        Application _ ->
+                            True
+
+                        FunctionOrValue _ _ ->
+                            True
+
+                        PrefixOperator _ ->
+                            True
+
+                        -- Makes sense, but could maybe be written better
+                        RecordAccessFunction _ ->
+                            True
+
+                        -- Sure, if it compiled before
+                        ParenthesizedExpression _ ->
+                            True
+
+                        RecordAccess _ _ ->
+                            True
+
+                        _ ->
+                            -- * Only if it was in parentheses (which it isn't)
+                            -- OperatorApplication
+                            -- IfBlock
+                            -- LetExpression
+                            -- CaseExpression
+                            -- LambdaExpression
+                            -- * Doesn't seem right to me
+                            -- UnitExpr
+                            -- Operator
+                            -- Integer
+                            -- Hex
+                            -- Floatable
+                            -- GLSLExpression
+                            -- Literal
+                            -- CharLiteral
+                            -- TupledExpression
+                            -- RecordExpr
+                            -- ListExpr
+                            -- Negation
+                            -- RecordUpdateExpression
+                            False
+    in
+    haveAnInputStepThatIs ableToBeAnArgument
+        |> and (haveASecondStepThatIs ableToTakeAnArgument)
+
+
+{-| **DEPRECATED: Use [`haveAnInputStepThatIs`](#haveAnInputStepThatIs)
+instead.**
+-}
+haveAnInputStepOf : (Node Expression -> Bool) -> Predicate anyType
+haveAnInputStepOf =
+    haveAnInputStepThatIs << stepPredicate
+
+
+{-| Given a predicate for a single step, check if the first step in a pipeline
+matches said predicate.
+-}
+haveAnInputStepThatIs : StepPredicate -> Predicate anyType
+haveAnInputStepThatIs (StepPredicate pred) =
+    predicateWithLookupTable <|
+        \lookupTable { steps } ->
+            List.head steps
+                |> Maybe.map (pred lookupTable << .node)
+                |> Maybe.withDefault False
+
+
+{-| Given a predicate for a single step, check if the second step in a pipeline
+matches said predicate.
+-}
+haveASecondStepThatIs : StepPredicate -> Predicate anyType
+haveASecondStepThatIs (StepPredicate pred) =
+    predicateWithLookupTable <|
+        \l { steps } ->
+            case steps of
+                _ :: s2 :: _ ->
+                    pred l s2.node
+
+                _ ->
+                    False
+
+
+{-| Given a predicate for a single step, check if any step in a pipeline matches
+said predicate.
+-}
+haveAnyStepThatIs : StepPredicate -> Predicate anyType
+haveAnyStepThatIs (StepPredicate pred) =
+    predicateWithLookupTable <|
+        \lookupTable { steps } ->
+            List.any (pred lookupTable << .node) steps
+
+
+{-| Given a predicate for a single step, check if all step in a pipeline match
+said predicate.
+-}
+haveStepsThatAreAll : StepPredicate -> Predicate anyType
+haveStepsThatAreAll (StepPredicate pred) =
+    predicateWithLookupTable <|
+        \lookupTable { steps } ->
+            List.all (pred lookupTable << .node) steps
+
+
+{-| Given a predicate for a single step, check if any step in a pipeline except
+for the first matches said predicate.
+-}
+haveAnyNonInputStepThatIs : StepPredicate -> Predicate anyType
+haveAnyNonInputStepThatIs (StepPredicate pred) =
+    predicateWithLookupTable <|
+        \lookupTable { steps } ->
+            List.tail steps
+                |> Maybe.map (List.any (pred lookupTable << .node))
+                |> Maybe.withDefault False
+
+
+{-| Given a predicate for a single step, check if all steps in a pipeline except
+for the first match said predicate.
+-}
+haveNonInputStepsThatAreAll : StepPredicate -> Predicate anyType
+haveNonInputStepsThatAreAll (StepPredicate pred) =
+    predicateWithLookupTable <|
+        \lookupTable { steps } ->
+            List.tail steps
+                |> Maybe.map (List.all (pred lookupTable << .node))
+                |> Maybe.withDefault False
+
+
+{-| Checks if a step consists of a single line of code.
+-}
+onASingleLine : StepPredicate
+onASingleLine =
+    stepPredicate <|
+        \node ->
+            let
+                r : Range
+                r =
+                    Node.range node
+            in
+            r.start.row == r.end.row
+
+
+{-| Checks if a step consists of more than one line of code.
+-}
+onMultipleLines : StepPredicate
+onMultipleLines =
+    stepPredicate <|
+        \node ->
+            let
+                r : Range
+                r =
+                    Node.range node
+            in
+            r.end.row > r.start.row
+
+
+{-| A "semantically-infix" function is a function that is intended (by name) to
+be read in an infix fashion as part of a pipeline. For example, `Maybe.andThen`
+or `remainderBy` or `Maybe.Extra.orElse`:
+
+    List.head |> Maybe.andThen String.toFloat
+
+    10 |> remainderBy 2
+
+In practice, it checks if a step begins with a function that begins with the
+word "or" or "and" or ends in "By", or is on the following whitelist of
+functions:
+
+  - `logBase`
+  - `atMost`
+  - `atLeast`
+
+It also rules out confusing, non-commutative functions, even if they match the
+above.
+
+If you have suggestions for additions to this list, please open an issue or PR
+on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
+-}
+aSemanticallyInfixFunction : StepPredicate
+aSemanticallyInfixFunction =
+    let
+        whitelist : Set String
+        whitelist =
+            -- Functions that do not match "or...", "and...", or "...By"
+            Set.fromList
+                [ "logBase"
+                , "atMost"
+                , "atLeast"
+                ]
+    in
+    stepPredicateWithLookupTable <|
+        \l node ->
+            getFirstFunction l node
+                |> Maybe.map
+                    (\( _, f ) ->
+                        let
+                            len : Int
+                            len =
+                                String.length f
+
+                            beginsWithWord : String -> Bool
+                            beginsWithWord w =
+                                let
+                                    wordLen : Int
+                                    wordLen =
+                                        String.length w
+                                in
+                                (len > wordLen)
+                                    && String.startsWith w f
+                                    && (String.all Char.isUpper <| String.slice wordLen (wordLen + 1) f)
+                        in
+                        List.any beginsWithWord [ "and", "or" ]
+                            || (String.endsWith "By" f && len > 2)
+                            || Set.member f whitelist
+                    )
+                |> Maybe.withDefault False
+
+
+{-| Return the first function in an expression, along with the correct module
+name. Note that this returns an impossible module of `[ "Record Access" ]` for
+record access functions.
+-}
+getFirstFunction : ModuleNameLookupTable -> Node Expression -> Maybe ( ModuleName, String )
+getFirstFunction lookupTable node =
+    case Node.value node of
+        ParenthesizedExpression e ->
+            getFirstFunction lookupTable e
+
+        RecordAccessFunction s ->
+            -- This is a weird case, so assign a module name that is not possible.
+            Just ( [ "Record Access" ], s )
+
+        PrefixOperator s ->
+            moduleNameFor lookupTable node
+                |> Maybe.map (\mn -> ( mn, s ))
+
+        FunctionOrValue _ s ->
+            moduleNameFor lookupTable node
+                |> Maybe.map (\mn -> ( mn, s ))
+
+        Application es ->
+            List.head es
+                |> Maybe.andThen (getFirstFunction lookupTable)
+
+        -- OperatorApplication
+        -- Negation
+        -- UnitExpr
+        -- GLSLExpression
+        -- RecordUpdateExpression
+        -- RecordAccess
+        -- LetExpression LetBlock
+        -- ListExpr (List (Node Expression))
+        -- RecordExpr
+        -- LambdaExpression
+        -- CaseExpression
+        -- Operator
+        -- Integer
+        -- Hex
+        -- Floatable
+        -- TupledExpression
+        -- Literal
+        -- CharLiteral
+        -- IfBlock
+        _ ->
+            Nothing
+
+
+{-| This checks if a step is a commonly-confused, non-commutative function by
+checking if it is on the following blacklist of such functions:
+
+  - `Basics.(-)`
+
+  - `Basics.(/)`
+
+  - `Basics.(//)`
+
+  - `Basics.(^)`
+
+  - `Basics.(<)`
+
+  - `Basics.(>)`
+
+  - `Basics.(<=)`
+
+  - `Basics.(>=)`
+
+  - `Basics.(++)`
+
+  - `Basics.(>>)`
+
+  - `Basics.(<<)`
+
+  - `Basics.compare`
+
+  - `Parser.(|.)`
+
+  - `Parser.(|=)`
+
+  - `Parser.Advanced.(|.)`
+
+  - `Parser.Advanced.(|=)`
+
+  - `Url.Parser.(</>)`
+
+  - `Url.Parser.(<?>)`
+
+  - `Array.append`
+
+  - `Dict.diff`
+
+  - `List.append`
+
+  - `Set.diff`
+
+  - `String.append`
+
+  - `Basics.Extra.safeDivide`
+
+  - `Basics.Extra.safeIntegerDivide`
+
+  - `IntDict.diff`
+
+  - `Maybe.Extra.or`
+
+  - `Result.Extra.or`
+
+If you have suggestions for additions to this list, please open an issue or PR
+on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
+-}
+aConfusingNonCommutativeFunction : StepPredicate
+aConfusingNonCommutativeFunction =
+    let
+        blacklist : Set ( ModuleName, String )
+        blacklist =
+            Set.fromList
+                [ ( [ "Basics" ], "-" )
+                , ( [ "Basics" ], "/" )
+                , ( [ "Basics" ], "//" )
+                , ( [ "Basics" ], "^" )
+                , ( [ "Basics" ], "<" )
+                , ( [ "Basics" ], ">" )
+                , ( [ "Basics" ], "<=" )
+                , ( [ "Basics" ], ">=" )
+                , ( [ "Basics" ], "++" )
+                , ( [ "Basics" ], ">>" )
+                , ( [ "Basics" ], "<<" )
+                , ( [ "Basics" ], "compare" )
+                , ( [ "Parser" ], "|." )
+                , ( [ "Parser" ], "|=" )
+                , ( [ "Parser", "Advanced" ], "|." )
+                , ( [ "Parser", "Advanced" ], "|=" )
+                , ( [ "Url", "Parser" ], "</>" )
+                , ( [ "Url", "Parser" ], "<?>" )
+                , ( [ "Array" ], "append" )
+                , ( [ "Dict" ], "diff" )
+                , ( [ "List" ], "append" )
+                , ( [ "Set" ], "diff" )
+                , ( [ "String" ], "append" )
+                , ( [ "Basics", "Extra" ], "safeDivide" )
+                , ( [ "Basics", "Extra" ], "safeIntegerDivide" )
+                , ( [ "IntDict" ], "diff" )
+                , ( [ "Maybe", "Extra" ], "or" )
+                , ( [ "Result", "Extra" ], "or" )
+                ]
+    in
+    stepPredicateWithLookupTable <|
+        \lookupTable node ->
+            getFirstFunction lookupTable node
+                |> Maybe.map (\f -> Set.member f blacklist)
+                |> Maybe.withDefault False
+
+
+{-| Checks if a step is "visually" simple. This is of course extremely
+subjective; if you require different behavior, you can use
+[`stepPredicate`](#stepPredicate) to fully customize it. A step is considered
+"simple" if it is **40 characters or less**, is only a **single line**, and is
+one of the following:
+
+    -- Unit
+    ()
+
+    -- Name
+    a
+
+    -- Prefix operator
+    (+)
+
+    -- Int literal
+    1
+
+    -- Hex literal
+    0x0F
+
+    -- Float literal
+    1.5
+
+    -- String literal
+    "bar"
+
+    -- Char literal
+    'c'
+
+    -- Record access function
+    .field
+
+or is one of the following where all subexpressions are simple:
+
+    -- Application
+    foo bar baz
+
+    -- Tuple
+    ( a, "b" )
+
+    -- Record
+    { a = "value" }
+
+    -- List
+    []
+
+    -- Record access
+    a.field
+
+    -- Negation
+    elmFormatWontLetThisBeAnExample
+
+    -- Parentheses
+    elmFormatWontLetThisBeAnExample
+
+-}
+aSimpleStep : StepPredicate
+aSimpleStep =
     let
         go : Node Expression -> Bool
         go e =
@@ -373,6 +918,9 @@ haveASimpleInputStep =
                         ListExpr es ->
                             List.all go es
 
+                        Application es ->
+                            List.all go es
+
                         Negation e_ ->
                             go e_
 
@@ -383,9 +931,6 @@ haveASimpleInputStep =
                             go e_
 
                         RecordUpdateExpression _ _ ->
-                            False
-
-                        Application _ ->
                             False
 
                         OperatorApplication _ _ _ _ ->
@@ -406,150 +951,39 @@ haveASimpleInputStep =
                         GLSLExpression _ ->
                             False
                    )
-
-        (Predicate unnecessaryInput) =
-            haveAnUnnecessaryInputStep
     in
-    predicateWithLookupTable <|
-        \l ({ steps } as p) ->
-            unnecessaryInput l p
-                && (List.head steps
-                        |> Maybe.map (go << .node)
-                        |> Maybe.withDefault False
-                   )
+    stepPredicate go
 
 
-{-| Determine whether the pipeline has an input step that simply isn't
-necessary, e.g. `foo |> bar |> baz`, which may be written as `bar foo |> baz`.
+{-| Given a function of type `Node Expression -> Bool`, create a `StepPredicate`
+from it. This is only useful if you want to write custom predicates for steps.
 
-This is not perfectly exhaustive as it does not consider operator precedence and
-the like but will suffice for finding most simple cases.
-
-Note that this will potentially flag quite complex inputs, so you might want to
-use [`haveASimpleInputStep`](#haveASimpleInputStep) instead, since that only
-detects visually simple inputs.
+If you think a generally useful step predicate is missing, please open an issue
+or PR on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
 
 -}
-haveAnUnnecessaryInputStep : Predicate ApplicationPipeline
-haveAnUnnecessaryInputStep =
-    predicate <|
-        \{ steps } ->
-            case steps of
-                s1 :: s2 :: _ ->
-                    let
-                        firstNoApplication : Bool
-                        firstNoApplication =
-                            case Node.value s1.node of
-                                Application _ ->
-                                    False
-
-                                OperatorApplication _ _ _ _ ->
-                                    False
-
-                                IfBlock _ _ _ ->
-                                    False
-
-                                LetExpression _ ->
-                                    False
-
-                                CaseExpression _ ->
-                                    False
-
-                                LambdaExpression _ ->
-                                    False
-
-                                GLSLExpression _ ->
-                                    False
-
-                                _ ->
-                                    -- These are all simple values that can be fed right into a pipeline
-                                    -- UnitExpr
-                                    -- FunctionOrValue
-                                    -- PrefixOperator
-                                    -- Operator
-                                    -- Integer
-                                    -- Hex
-                                    -- Floatable
-                                    -- Literal
-                                    -- CharLiteral
-                                    -- RecordAccessFunction
-                                    -- TupledExpression
-                                    -- RecordExpr
-                                    -- ListExpr
-                                    -- Negation
-                                    -- ParenthesizedExpression
-                                    -- RecordAccess
-                                    -- RecordUpdateExpression
-                                    True
-
-                        secondCanBeApplied : Bool
-                        secondCanBeApplied =
-                            case Node.value s2.node of
-                                -- Definitely!
-                                Application _ ->
-                                    True
-
-                                FunctionOrValue _ _ ->
-                                    True
-
-                                PrefixOperator _ ->
-                                    True
-
-                                -- Makes sense, but could maybe be written better
-                                RecordAccessFunction _ ->
-                                    True
-
-                                -- Sure, if it compiled before
-                                ParenthesizedExpression _ ->
-                                    True
-
-                                RecordAccess _ _ ->
-                                    True
-
-                                _ ->
-                                    -- * Only if it was in parentheses (which it isn't)
-                                    -- OperatorApplication
-                                    -- IfBlock
-                                    -- LetExpression
-                                    -- CaseExpression
-                                    -- LambdaExpression
-                                    -- * Doesn't seem right to me
-                                    -- UnitExpr
-                                    -- Operator
-                                    -- Integer
-                                    -- Hex
-                                    -- Floatable
-                                    -- GLSLExpression
-                                    -- Literal
-                                    -- CharLiteral
-                                    -- TupledExpression
-                                    -- RecordExpr
-                                    -- ListExpr
-                                    -- Negation
-                                    -- RecordUpdateExpression
-                                    False
-                    in
-                    firstNoApplication && secondCanBeApplied
-
-                _ ->
-                    False
+stepPredicate : (Node Expression -> Bool) -> StepPredicate
+stepPredicate p =
+    StepPredicate <| always p
 
 
-{-| Like [`haveASimpleInputStep`](#haveASimpleInputStep) but with a user-providable
-function to check if an expression is simple.
+{-| Given a function of type `ModuleNameLookupTable -> Node Expression -> Bool`,
+create a `StepPredicate` from it. This is only useful if you want to write
+custom predicates for steps and need full module names.
+
+If you think a generally useful step predicate is missing, please open an issue
+or PR on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
+
 -}
-haveAnInputStepOf : (Node Expression -> Bool) -> Predicate anyType
-haveAnInputStepOf pred =
-    predicate <|
-        \{ steps } ->
-            List.head steps
-                |> Maybe.map (pred << .node)
-                |> Maybe.withDefault False
+stepPredicateWithLookupTable : (ModuleNameLookupTable -> Node Expression -> Bool) -> StepPredicate
+stepPredicateWithLookupTable =
+    StepPredicate
 
 
-{-| Checks if a left "pizza" (`<|`) operator is used in the "canonical" fashion
-in a test suite, to separate the lambda containing the test from the `test`.
-All of the following will "pass" this predicate, and all other `<|`'s will not:
+{-| Checks if an operator (typically left pizza (`<|`)) is used in the
+"canonical" fashion in a test suite, to separate the lambda containing the test
+from the `test`. All of the following will pass this predicate, and all other
+uses will not:
 
     import Test exposing (..)
 
@@ -572,28 +1006,88 @@ All of the following will "pass" this predicate, and all other `<|`'s will not:
                     a
             ]
 
--}
-separateATestFromItsLambda : Predicate ApplicationPipeline
-separateATestFromItsLambda =
-    predicateWithLookupTable <|
-        \lookupTable { operator, steps } ->
-            case ( operator, List.map (Node.value << .node) steps ) of
-                ( LeftPizza, [ LambdaExpression _, Application es ] ) ->
-                    List.head es
-                        |> Maybe.map
-                            (\h ->
+Here is how to construct this predicate, for an example of how to build complex
+predicates:
+
+    separateATestFromItsLambda =
+        let
+            aLambdaExpression : StepPredicate
+            aLambdaExpression =
+                stepPredicate <|
+                    \node ->
+                        case Node.value node of
+                            LambdaExpression _ ->
+                                True
+
+                            _ ->
+                                False
+
+            aTestFunction : StepPredicate
+            aTestFunction =
+                stepPredicateWithLookupTable <|
+                    \lookupTable node ->
+                        case Node.value node of
+                            Application (h :: _) ->
                                 case ( Node.value h, moduleNameFor lookupTable h ) of
                                     ( FunctionOrValue _ n, Just [ "Test" ] ) ->
-                                        List.member n [ "test", "fuzz", "fuzz2", "fuzz3", "fuzzWith" ]
+                                        List.member n
+                                            [ "test"
+                                            , "fuzz"
+                                            , "fuzz2"
+                                            , "fuzz3"
+                                            , "fuzzWith"
+                                            ]
 
                                     _ ->
                                         False
-                            )
-                        |> Maybe.withDefault False
 
-                _ ->
-                    -- Any other case isn't the "test" usage
-                    False
+                            _ ->
+                                False
+        in
+        haveFewerStepsThan 3
+            |> and (haveAnInputStepThatIs aLambdaExpression)
+            |> and (haveASecondStepThatIs aTestFunction)
+
+-}
+separateATestFromItsLambda : Predicate ApplicationPipeline
+separateATestFromItsLambda =
+    let
+        aLambdaExpression : StepPredicate
+        aLambdaExpression =
+            stepPredicate <|
+                \node ->
+                    case Node.value node of
+                        LambdaExpression _ ->
+                            True
+
+                        _ ->
+                            False
+
+        aTestFunction : StepPredicate
+        aTestFunction =
+            stepPredicateWithLookupTable <|
+                \lookupTable node ->
+                    case Node.value node of
+                        Application (h :: _) ->
+                            case ( Node.value h, moduleNameFor lookupTable h ) of
+                                ( FunctionOrValue _ n, Just [ "Test" ] ) ->
+                                    List.member n
+                                        [ "test"
+                                        , "fuzz"
+                                        , "fuzz2"
+                                        , "fuzz3"
+                                        , "fuzzWith"
+                                        ]
+
+                                _ ->
+                                    False
+
+                        _ ->
+                            False
+    in
+    haveFewerStepsThan 3
+        |> and (haveAnInputStepThatIs aLambdaExpression)
+        |> and (haveASecondStepThatIs aTestFunction)
 
 
 {-| Checks whether any comments are located within the pipeline, e.g.

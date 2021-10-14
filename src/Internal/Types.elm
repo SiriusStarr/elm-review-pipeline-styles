@@ -6,6 +6,7 @@ module Internal.Types exposing
     , Pipeline
     , PipelineFix(..)
     , Predicate(..)
+    , StepPredicate(..)
     )
 
 {-| Internal types, not to have their details exposed.
@@ -22,6 +23,12 @@ import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 -}
 type Predicate pipelineType
     = Predicate (ModuleNameLookupTable -> Pipeline -> Bool)
+
+
+{-| A predicate for a single step of a pipeline.
+-}
+type StepPredicate
+    = StepPredicate (ModuleNameLookupTable -> Node Expression -> Bool)
 
 
 {-| A detected pipeline. You only need be concerned with this type if you are

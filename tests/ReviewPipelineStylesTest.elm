@@ -37,27 +37,39 @@ import ReviewPipelineStyles.Fixes
         )
 import ReviewPipelineStyles.Predicates
     exposing
-        ( aDataStructure
+        ( StepPredicate
+        , aConfusingNonCommutativeFunction
+        , aDataStructure
         , aFlowControlStructure
         , aLambdaFunction
         , aLetBlock
+        , aSemanticallyInfixFunction
         , and
         , doNot
         , getSteps
         , haveAParent
         , haveAParentNotSeparatedBy
+        , haveASecondStepThatIs
         , haveASimpleInputStep
         , haveAnInputStepOf
+        , haveAnInputStepThatIs
         , haveAnUnnecessaryInputStep
+        , haveAnyNonInputStepThatIs
+        , haveAnyStepThatIs
         , haveFewerStepsThan
         , haveInternalComments
         , haveMoreNestedParentsThan
         , haveMoreStepsThan
+        , haveNonInputStepsThatAreAll
+        , haveStepsThatAreAll
+        , onASingleLine
+        , onMultipleLines
         , or
         , predicate
         , predicateWithLookupTable
         , separateATestFromItsLambda
         , spanMultipleLines
+        , stepPredicate
         )
 import Test exposing (Test, describe, test)
 
@@ -79,6 +91,7 @@ all =
         , customPredicateTests
         , haveInternalCommentsTests
         , fixTests
+        , stepPredicateTests
         ]
 
 
@@ -604,19 +617,19 @@ g = "abc" |> stringLiteral
 h = '字' |> charLiteral
 i = .field |> recordAccessFunction
 j = (t1, t2) |> simpleTuple
-k = (t1, foo bar) |> notSimpleTuple
+k = (t1, if foo then bar else foo) |> notSimpleTuple
 l = {field = "simple"} |> simpleRecord
-m = {field = foo bar} |> notSimpleRecord
+m = {field = if foo then bar else foo} |> notSimpleRecord
 n = [ "a" ] |> simpleList
-o = [ foo bar ] |> notSimpleList
+o = [ if foo then bar else foo] |> notSimpleList
 p = name.field |> simpleRecordAccess
-q = (foo bar).field |> notSimpleRecordAccess
+q = (if foo then bar else foo).field |> notSimpleRecordAccess
 r = -int |> simpleNegation
-s = -(foo bar) |> notSimpleNegation
+s = -(if foo then bar else foo) |> notSimpleNegation
 t = (a) |> simpleParentheses
-u = (foo bar) |> notSimpleParentheses
+u = (if foo then bar else foo) |> notSimpleParentheses
 v = {rec | update = 0} |> recordUpdateNeverSimple
-w = foo bar |> applicationNeverSimple
+w = foo bar |> applicationSimpleButNotUnnecessary
 x = 1 + 2 |> operatorApplicationNeverSimple
 y = (if True then 0 else 1) |> ifBlockNeverSimple
 z = (let foo = bar in baz) |> letBlockNeverSimple
@@ -2024,6 +2037,524 @@ b =
 """
                         , expectFail """foo  >> bar -- Comments!
     >> baz"""
+                        ]
+        ]
+
+
+stepPredicateTests : Test
+stepPredicateTests =
+    describe "step predicates"
+        [ stepSelectionTests
+        , onASingleLineTests
+        , onMultipleLinesTests
+        , aConfusingNonCommutativeFunctionTests
+        , aSemanticallyInfixFunctionTests
+        ]
+
+
+stepSelectionTests : Test
+stepSelectionTests =
+    let
+        specificIntLiteral : StepPredicate
+        specificIntLiteral =
+            stepPredicate <| \n -> Node.value n == Expression.Integer 117
+    in
+    describe "step selection"
+        [ test "haveAnInputStepThatIs works for all pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a1 =
+    foo <| bar <| 117
+a2 =
+    foo <| bar2 <| 117 <| baz
+b1 =
+    foo << bar << 117
+b2 =
+    foo << bar2 << 117 << baz
+c1 =
+    117 >> bar >> baz
+c2 =
+    foo >> 117 >> bar2 >> baz
+d1 =
+    foo (bar (baz (i (117))))
+d2 =
+    foo (bar2 (baz (i (117 (j k)))))
+e1 =
+    117 |> bar |> baz
+e2 =
+    foo |> 117 |> bar2 |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAnInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (haveAnInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> that (haveAnInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightCompositionPipelines
+                                |> that (haveAnInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveAnInputStepThatIs specificIntLiteral)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """117 |> bar |> baz"""
+                        , expectFail """foo <| bar <| 117"""
+                        , expectFail """foo << bar << 117"""
+                        , expectFail """117 >> bar >> baz"""
+                        , expectFail """foo (bar (baz (i (117))))"""
+                        ]
+        , test "haveASecondStepThatIs works for all pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a1 =
+    foo <| bar <| 117
+a2 =
+    foo <| bar2 <| 117 <| baz
+a3 =
+    117 <| bar <| foo
+b1 =
+    foo << bar << 117
+b2 =
+    foo << bar2 << 117 << baz
+b3 =
+    117 << bar << foo
+c1 =
+    117 >> bar >> baz
+c2 =
+    foo >> 117 >> bar2 >> baz
+c3 =
+    foo >> bar >> 117
+d1 =
+    foo (bar (baz (i (117))))
+d2 =
+    foo (bar2 (baz (i (117 (j k)))))
+d3 =
+    foo (bar (117 (i (j k))))
+e1 =
+    117 |> bar |> baz
+e2 =
+    foo |> 117 |> bar2 |> baz
+e3 =
+    foo |> bar |> 117
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveASecondStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (haveASecondStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> that (haveASecondStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightCompositionPipelines
+                                |> that (haveASecondStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveASecondStepThatIs specificIntLiteral)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> 117 |> bar2 |> baz"""
+                        , expectFail """foo <| bar2 <| 117 <| baz"""
+                        , expectFail """foo << bar2 << 117 << baz"""
+                        , expectFail """foo >> 117 >> bar2 >> baz"""
+                        , expectFail """foo (bar2 (baz (i (117 (j k)))))"""
+                        ]
+        , test "haveAnyNonInputStepThatIs works for all pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a1 =
+    117 <| 117 <| 117
+a2 =
+    foo <| bar2 <| 117 <| baz
+b1 =
+    foo << bar << 117
+b2 =
+    117 << bar2 << baz
+c1 =
+    117 >> bar >> baz
+c2 =
+    foo >> 117 >> bar2 >> baz
+d1 =
+    foo (bar (baz (i (117))))
+d2 =
+    foo (117 (baz (i  (j k))))
+e1 =
+    117 |> bar |> baz
+e2 =
+    foo |> 117 |> 117 |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAnyNonInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (haveAnyNonInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> that (haveAnyNonInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightCompositionPipelines
+                                |> that (haveAnyNonInputStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveAnyNonInputStepThatIs specificIntLiteral)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> 117 |> 117 |> baz"""
+                        , expectFail """foo <| bar2 <| 117 <| baz"""
+                        , expectFail """117 <| 117 <| 117"""
+                        , expectFail """117 << bar2 << baz"""
+                        , expectFail """foo >> 117 >> bar2 >> baz"""
+                        , expectFail """foo (117 (baz (i  (j k))))"""
+                        ]
+        , test "haveNonInputStepsThatAreAll" <|
+            \() ->
+                """module A exposing (..)
+
+a1 =
+    117 <| 117 <| 117
+a2 =
+    foo <| bar2 <| 117 <| baz
+b1 =
+    foo << bar << 117
+b2 =
+    117 << bar2 << baz
+c1 =
+    117 >> bar >> baz
+c2 =
+    foo >> 117 >> bar2 >> baz
+d1 =
+    foo (bar (baz (i (117))))
+d2 =
+    foo (117 (baz (i  (j k))))
+e1 =
+    117 |> bar |> baz
+e2 =
+    foo |> 117 |> 117 |> 117
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveNonInputStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (haveNonInputStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> that (haveNonInputStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid rightCompositionPipelines
+                                |> that (haveNonInputStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveNonInputStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> 117 |> 117 |> 117"""
+                        , expectFail """117 <| 117 <| 117"""
+                        ]
+        , test "haveAnyStepThatIs works for all pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a1 =
+    foo <| bar <| 117
+a2 =
+    foo <| bar2 <| baz
+b1 =
+    foo << bar << baz
+b2 =
+    foo << bar2 << 117 << baz
+c1 =
+    foo >> bar >> baz
+c2 =
+    foo >> bar2 >> 117
+d1 =
+    foo (bar (baz (i (117))))
+d2 =
+    foo (bar2 (baz (i (j k))))
+e1 =
+    117 |> 117 |> 117
+e2 =
+    foo |> 13 |> bar2 |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveAnyStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (haveAnyStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> that (haveAnyStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid rightCompositionPipelines
+                                |> that (haveAnyStepThatIs specificIntLiteral)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveAnyStepThatIs specificIntLiteral)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """117 |> 117 |> 117"""
+                        , expectFail """foo <| bar <| 117"""
+                        , expectFail """foo << bar2 << 117 << baz"""
+                        , expectFail """foo >> bar2 >> 117"""
+                        , expectFail """foo (bar (baz (i (117))))"""
+                        ]
+        , test "haveStepsThatAreAll works for all pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a1 =
+    117 <| 117 <| 117
+a2 =
+    117 <| bar2 <| baz
+b1 =
+    117 << 117 << 117
+b2 =
+    117 << bar2 << 117 << baz
+c1 =
+    117 >> 117 >> 117
+c2 =
+    foo >> bar2 >> 117
+d1 =
+    117 (117 (117 (117 (117))))
+d2 =
+    foo (bar2 (baz (i (j k))))
+e1 =
+    117 |> 117 |> 117
+e2 =
+    foo |> 13 |> bar2 |> baz
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that (haveStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (haveStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid leftCompositionPipelines
+                                |> that (haveStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid rightCompositionPipelines
+                                |> that (haveStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            , forbid parentheticalApplicationPipelines
+                                |> that (haveStepsThatAreAll specificIntLiteral)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """117 |> 117 |> 117"""
+                        , expectFail """117 <| 117 <| 117"""
+                        , expectFail """117 << 117 << 117"""
+                        , expectFail """117 >> 117 >> 117"""
+                        , expectFail """117 (117 (117 (117 (117))))"""
+                        ]
+        ]
+
+
+onASingleLineTests : Test
+onASingleLineTests =
+    describe "onASingleLine"
+        [ test "onASingleLine works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> 117
+b =
+    foo
+        |> bar
+        |> baz
+c =
+    foo
+        bar
+        |> baz i
+        |> j
+            k
+d =
+    foo
+        bar
+        |> baz
+            i
+        |> j
+            k
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveAnyStepThatIs onASingleLine)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> bar |> 117"""
+                        , expectFail """foo
+        |> bar
+        |> baz"""
+                        , expectFail """foo
+        bar
+        |> baz i
+        |> j
+            k"""
+                        ]
+        ]
+
+
+onMultipleLinesTests : Test
+onMultipleLinesTests =
+    describe "onMultipleLines"
+        [ test "onMultipleLines works" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo |> bar |> 117
+b =
+    foo
+        |> bar
+        |> baz
+c =
+    foo
+        bar
+        |> baz i
+        |> j
+            k
+d =
+    foo
+        bar
+        |> baz
+            i
+        |> j
+            k
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveAnyStepThatIs onMultipleLines)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo
+        bar
+        |> baz i
+        |> j
+            k"""
+                        , expectFail """foo
+        bar
+        |> baz
+            i
+        |> j
+            k"""
+                        ]
+        ]
+
+
+aConfusingNonCommutativeFunctionTests : Test
+aConfusingNonCommutativeFunctionTests =
+    describe "aConfusingNonCommutativeFunction"
+        [ test "aConfusingNonCommutativeFunction works" <|
+            \() ->
+                """module A exposing (..)
+
+import Dict exposing (diff)
+
+parentheticalOperator =
+    startOfList |> (++) endOfList |> whoops
+function =
+    keepDict |> diff subtractDict |> whoops
+withoutApplication =
+    1 |> (-)
+withParentheses =
+    startOfList |> ((List.append) endOfList) |> whoops
+commutative =
+    1 |> (+) 2
+otherThings =
+    foo |> bar |> baz
+withinComplexStatements =
+    foo |> ( if (-) 2 3 == 0 then True else False )
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """startOfList |> (++) endOfList |> whoops"""
+                        , expectFail """keepDict |> diff subtractDict |> whoops"""
+                        , expectFail """1 |> (-)"""
+                        , expectFail """startOfList |> ((List.append) endOfList) |> whoops"""
+                        ]
+        ]
+
+
+aSemanticallyInfixFunctionTests : Test
+aSemanticallyInfixFunctionTests =
+    describe "aSemanticallyInfixFunction"
+        [ test "aSemanticallyInfixFunction works" <|
+            \() ->
+                """module A exposing (..)
+
+andWord =
+    foo |> andAdd bar
+andAlone =
+    foo |> and bar
+andPartOfWord =
+    foo |> andesMountains bar
+orWord =
+    foo |> orAdd bar
+orAlone =
+    foo |> or bar
+orPartOfWord =
+    foo |> oresOfIron bar
+wordBy =
+    117 |> modBy 3
+byAlone =
+    foo |> by bar
+byPartOfWord =
+    foo |> bypass bar
+whitelisted =
+    10 |> logBase 2
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveAnyStepThatIs aSemanticallyInfixFunction)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """foo |> andAdd bar"""
+                        , expectFail """foo |> orAdd bar"""
+                        , expectFail """117 |> modBy 3"""
+                        , expectFail """10 |> logBase 2"""
                         ]
         ]
 

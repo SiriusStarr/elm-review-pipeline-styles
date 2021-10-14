@@ -45,7 +45,18 @@ import Elm.Syntax.Range exposing (Range)
 import Internal.Types as Types exposing (Operator(..), Predicate(..))
 import Review.Fix as Fix exposing (Fix)
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
-import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Pipeline, haveAnUnnecessaryInputStep, spanMultipleLines)
+import ReviewPipelineStyles.Predicates
+    exposing
+        ( ApplicationPipeline
+        , CompositionPipeline
+        , Pipeline
+        , doNot
+        , haveAnUnnecessaryInputStep
+        , haveInternalComments
+        , haveStepsThatAreAll
+        , onASingleLine
+        , spanMultipleLines
+        )
 
 
 {-| A means of fixing a pipeline, to (presumably) bring it stylistically inline
@@ -149,35 +160,17 @@ or the like.
 makingSingleLine : PipelineFix pipelineType
 makingSingleLine =
     fixWithLookupTable <|
-        \lookupTable extractSource ({ steps, operator, internalComments } as pipeline) ->
+        \l extractSource ({ operator } as pipeline) ->
             let
                 matchesPredicate : Predicate ApplicationPipeline -> Bool
                 matchesPredicate (Predicate p) =
-                    p lookupTable pipeline
+                    p l pipeline
             in
-            if matchesPredicate spanMultipleLines then
-                let
-                    allExpressionsSingleLine : Bool
-                    allExpressionsSingleLine =
-                        List.all
-                            (\{ node } ->
-                                let
-                                    r : Range
-                                    r =
-                                        Node.range node
-                                in
-                                r.start.row == r.end.row
-                            )
-                            steps
-                in
-                if List.isEmpty internalComments && allExpressionsSingleLine then
-                    Just
-                        [ writeAs extractSource operator pipeline
-                            |> Fix.replaceRangeBy (Node.range pipeline.node)
-                        ]
-
-                else
-                    Nothing
+            if List.all matchesPredicate [ spanMultipleLines, haveStepsThatAreAll onASingleLine, doNot haveInternalComments ] then
+                Just
+                    [ writeAs extractSource operator pipeline
+                        |> Fix.replaceRangeBy (Node.range pipeline.node)
+                    ]
 
             else
                 Nothing
