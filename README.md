@@ -11,11 +11,13 @@ For example, the usage of `<|` or the usage of excessively-long `|>` pipelines.
 
 This rule works with the following pipeline types:
 
-* `|>`
-* `<|`
-* `>>`
-* `<<`
-* `foo (bar (baz (i (j k))))`
+* `|>` -- Right "pizza" pipelines, i.e. right function application, so-called
+  because the operator resembles a slice of pizza 🍕.
+* `<|` -- Left "pizza" pipelines, i.e. left function application, so-called
+  because the operator resembles a slice of pizza 🍕.
+* `>>` -- Right composition pipelines.
+* `<<` -- Left composition pipelines.
+* `foo (bar (baz (i (j k))))` -- Parenthetical application pipelines.
 
 If you don't know where to start, be sure to check out
 [`ReviewPipelineStyles.Premade`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.0.0/ReviewPipelineStyles-Premade)
