@@ -17,6 +17,10 @@ This rule works with the following pipeline types:
 * `<<`
 * `foo (bar (baz (i (j k))))`
 
+If you don't know where to start, be sure to check out
+[`ReviewPipelineStyles.Premade`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.0.0/ReviewPipelineStyles-Premade)
+for some ready-made rules, as well as examples of how to construct them.
+
 ## Configuration
 
 ```elm

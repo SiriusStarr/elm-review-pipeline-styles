@@ -12,7 +12,8 @@ when inside the directory containing this file.
 -}
 
 import Review.Rule exposing (Rule)
-import ReviewPipelineStyles exposing (noMultilineLeftPizza, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noSingleLineRightPizza)
+import ReviewPipelineStyles
+import ReviewPipelineStyles.Premade exposing (noMultilineLeftPizza, noPipelinesWithConfusingNonCommutativeFunctions, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noSemanticallyInfixFunctionsInLeftPipelines, noSingleLineRightPizza)
 
 
 config : List Rule
@@ -23,5 +24,7 @@ config =
             , noSingleLineRightPizza
             , noPipelinesWithSimpleInputs
             , noRepeatedParentheticalApplication
+            , noPipelinesWithConfusingNonCommutativeFunctions
+            , noSemanticallyInfixFunctionsInLeftPipelines
             ]
     ]
