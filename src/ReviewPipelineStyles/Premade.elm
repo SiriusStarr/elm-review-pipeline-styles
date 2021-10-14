@@ -225,7 +225,7 @@ equivalent right pipeline.
 
 For example:
 
-    Maybe.andThen String.toFloat << List.head list
+    Maybe.andThen String.toFloat << List.head
 
     remainderBy 2 <| 1 + 3
 
