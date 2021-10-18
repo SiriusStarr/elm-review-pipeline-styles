@@ -26,23 +26,30 @@ for some ready-made rules, as well as examples of how to construct them.
 ## Configuration
 
 ```elm
-module ReviewConfig exposing (config)
-
 import Review.Rule exposing (Rule)
-import ReviewPipelineStyles exposing (andCallThem, andReportCustomError, exceptThoseThat, forbid, leftPizzaPipelines, rightPizzaPipelines, that)
-import ReviewPipelineStyles.Predicates exposing (haveMoreStepsThan, separateATestFromItsLambda)
+import ReviewPipelineStyles
+import ReviewPipelineStyles.Premade
+    exposing
+        ( noMultilineLeftPizza
+        , noPipelinesWithConfusingNonCommutativeFunctions
+        , noPipelinesWithSimpleInputs
+        , noRepeatedParentheticalApplication
+        , noSemanticallyInfixFunctionsInLeftPipelines
+        , noSingleLineRightPizza
+        )
 
 
 config : List Rule
 config =
-    [ ReviewPipelineStyles.rule
-        [ forbid leftPizzaPipelines
-            |> exceptThoseThat separateATestFromItsLambda
-            |> andReportCustomError "No left pizza!" [ "Left pizza <| pipelines have been forbidden, except in the \"canonical\" test usage." ]
-        , forbid rightPizzaPipelines
-            |> that (haveMoreStepsThan 10)
-            |> andCallThem "overly long |> pipeline"
-        ]
+    [ ReviewPipelineStyles.rule <|
+        List.concat
+            [ noMultilineLeftPizza
+            , noSingleLineRightPizza
+            , noPipelinesWithSimpleInputs
+            , noRepeatedParentheticalApplication
+            , noPipelinesWithConfusingNonCommutativeFunctions
+            , noSemanticallyInfixFunctionsInLeftPipelines
+            ]
     ]
 ```
 

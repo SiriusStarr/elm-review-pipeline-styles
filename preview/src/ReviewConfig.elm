@@ -13,7 +13,15 @@ when inside the directory containing this file.
 
 import Review.Rule exposing (Rule)
 import ReviewPipelineStyles
-import ReviewPipelineStyles.Premade exposing (noMultilineLeftPizza, noPipelinesWithConfusingNonCommutativeFunctions, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noSemanticallyInfixFunctionsInLeftPipelines, noSingleLineRightPizza)
+import ReviewPipelineStyles.Premade
+    exposing
+        ( noMultilineLeftPizza
+        , noPipelinesWithConfusingNonCommutativeFunctions
+        , noPipelinesWithSimpleInputs
+        , noRepeatedParentheticalApplication
+        , noSemanticallyInfixFunctionsInLeftPipelines
+        , noSingleLineRightPizza
+        )
 
 
 config : List Rule
