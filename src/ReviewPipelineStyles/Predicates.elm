@@ -2,7 +2,7 @@ module ReviewPipelineStyles.Predicates exposing
     ( and, or, doNot
     , spanMultipleLines, haveMoreStepsThan, haveFewerStepsThan, haveASimpleInputStep, haveAnUnnecessaryInputStep, separateATestFromItsLambda, haveInternalComments
     , haveAnInputStepThatIs, haveASecondStepThatIs, haveAnyNonInputStepThatIs, haveNonInputStepsThatAreAll, haveAnyStepThatIs, haveStepsThatAreAll
-    , aSemanticallyInfixFunction, aConfusingNonCommutativeFunction, aSimpleStep, onASingleLine, onMultipleLines, stepPredicate, stepPredicateWithLookupTable
+    , aSemanticallyInfixFunction, aConfusingNonCommutativePrefixOperator, aConfusingNonCommutativeFunction, aSimpleStep, onASingleLine, onMultipleLines, stepPredicate, stepPredicateWithLookupTable
     , haveAParent, haveAParentNotSeparatedBy, haveMoreNestedParentsThan, aLetBlock, aLambdaFunction, aFlowControlStructure, aDataStructure
     , predicate, predicateWithLookupTable
     , getSteps, getParents, getNode, getInternalComments
@@ -33,7 +33,7 @@ These predicates allow one to filter based on a specific step of a pipeline.
 
 @docs haveAnInputStepThatIs, haveASecondStepThatIs, haveAnyNonInputStepThatIs, haveNonInputStepsThatAreAll, haveAnyStepThatIs, haveStepsThatAreAll
 
-@docs aSemanticallyInfixFunction, aConfusingNonCommutativeFunction, aSimpleStep, onASingleLine, onMultipleLines, stepPredicate, stepPredicateWithLookupTable
+@docs aSemanticallyInfixFunction, aConfusingNonCommutativePrefixOperator, aConfusingNonCommutativeFunction, aSimpleStep, onASingleLine, onMultipleLines, stepPredicate, stepPredicateWithLookupTable
 
 
 ## Nesting Predicates
@@ -696,43 +696,10 @@ getFirstFunction lookupTable node =
 
 
 {-| This checks if a step is a commonly-confused, non-commutative function by
-checking if it is on the following blacklist of such functions:
-
-  - `Basics.(-)`
-
-  - `Basics.(/)`
-
-  - `Basics.(//)`
-
-  - `Basics.(^)`
-
-  - `Basics.(<)`
-
-  - `Basics.(>)`
-
-  - `Basics.(<=)`
-
-  - `Basics.(>=)`
-
-  - `Basics.(++)`
-
-  - `Basics.(>>)`
-
-  - `Basics.(<<)`
+checking if it is [`aConfusingNonCommutativePrefixOperator`](#aConfusingNonCommutativePrefixOperator)
+or on the following blacklist of such functions:
 
   - `Basics.compare`
-
-  - `Parser.(|.)`
-
-  - `Parser.(|=)`
-
-  - `Parser.Advanced.(|.)`
-
-  - `Parser.Advanced.(|=)`
-
-  - `Url.Parser.(</>)`
-
-  - `Url.Parser.(<?>)`
 
   - `Array.append`
 
@@ -764,6 +731,75 @@ aConfusingNonCommutativeFunction =
         blacklist : Set ( ModuleName, String )
         blacklist =
             Set.fromList
+                [ ( [ "Basics" ], "compare" )
+                , ( [ "Array" ], "append" )
+                , ( [ "Dict" ], "diff" )
+                , ( [ "List" ], "append" )
+                , ( [ "Set" ], "diff" )
+                , ( [ "String" ], "append" )
+                , ( [ "Basics", "Extra" ], "safeDivide" )
+                , ( [ "Basics", "Extra" ], "safeIntegerDivide" )
+                , ( [ "IntDict" ], "diff" )
+                , ( [ "Maybe", "Extra" ], "or" )
+                , ( [ "Result", "Extra" ], "or" )
+                ]
+
+        (StepPredicate opPredicate) =
+            aConfusingNonCommutativePrefixOperator
+    in
+    stepPredicateWithLookupTable <|
+        \lookupTable node ->
+            opPredicate lookupTable node
+                || (getFirstFunction lookupTable node
+                        |> Maybe.map (\f -> Set.member f blacklist)
+                        |> Maybe.withDefault False
+                   )
+
+
+{-| This checks if a step is a commonly-confused, non-commutative prefix
+operator by checking if it is on the following blacklist of such functions:
+
+  - `Basics.(-)`
+
+  - `Basics.(/)`
+
+  - `Basics.(//)`
+
+  - `Basics.(^)`
+
+  - `Basics.(<)`
+
+  - `Basics.(>)`
+
+  - `Basics.(<=)`
+
+  - `Basics.(>=)`
+
+  - `Basics.(++)`
+
+  - `Basics.(>>)`
+
+  - `Basics.(<<)`
+
+  - `Parser.(|.)`
+
+  - `Parser.(|=)`
+
+  - `Parser.Advanced.(|.)`
+
+  - `Parser.Advanced.(|=)`
+
+  - `Url.Parser.(</>)`
+
+  - `Url.Parser.(<?>)`
+
+-}
+aConfusingNonCommutativePrefixOperator : StepPredicate
+aConfusingNonCommutativePrefixOperator =
+    let
+        blacklist : Set ( ModuleName, String )
+        blacklist =
+            Set.fromList
                 [ ( [ "Basics" ], "-" )
                 , ( [ "Basics" ], "/" )
                 , ( [ "Basics" ], "//" )
@@ -775,23 +811,12 @@ aConfusingNonCommutativeFunction =
                 , ( [ "Basics" ], "++" )
                 , ( [ "Basics" ], ">>" )
                 , ( [ "Basics" ], "<<" )
-                , ( [ "Basics" ], "compare" )
                 , ( [ "Parser" ], "|." )
                 , ( [ "Parser" ], "|=" )
                 , ( [ "Parser", "Advanced" ], "|." )
                 , ( [ "Parser", "Advanced" ], "|=" )
                 , ( [ "Url", "Parser" ], "</>" )
                 , ( [ "Url", "Parser" ], "<?>" )
-                , ( [ "Array" ], "append" )
-                , ( [ "Dict" ], "diff" )
-                , ( [ "List" ], "append" )
-                , ( [ "Set" ], "diff" )
-                , ( [ "String" ], "append" )
-                , ( [ "Basics", "Extra" ], "safeDivide" )
-                , ( [ "Basics", "Extra" ], "safeIntegerDivide" )
-                , ( [ "IntDict" ], "diff" )
-                , ( [ "Maybe", "Extra" ], "or" )
-                , ( [ "Result", "Extra" ], "or" )
                 ]
     in
     stepPredicateWithLookupTable <|
