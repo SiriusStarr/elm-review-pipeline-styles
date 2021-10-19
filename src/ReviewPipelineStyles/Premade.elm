@@ -15,7 +15,7 @@ construct one's own `PipelineRule`s.
 
 import ReviewPipelineStyles exposing (PipelineRule, andCallThem, andTryToFixThemBy, exceptThoseThat, forbid, leftCompositionPipelines, leftPizzaPipelines, parentheticalApplicationPipelines, rightCompositionPipelines, rightPizzaPipelines, that)
 import ReviewPipelineStyles.Fixes exposing (convertingToRightComposition, convertingToRightPizza, eliminatingInputStep, makingMultiline, makingSingleLine)
-import ReviewPipelineStyles.Predicates exposing (aConfusingNonCommutativeFunction, aConfusingNonCommutativePrefixOperator, aSemanticallyInfixFunction, and, doNot, haveASimpleInputStep, haveAnyNonInputStepThatIs, haveAnyStepThatIs, haveFewerStepsThan, haveMoreStepsThan, separateATestFromItsLambda, spanMultipleLines)
+import ReviewPipelineStyles.Predicates exposing (aConfusingNonCommutativeFunction, aConfusingNonCommutativePrefixOperator, aSemanticallyInfixFunction, and, doNot, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnyNonInputStepThatIs, haveAnyStepThatIs, haveFewerStepsThan, haveMoreStepsThan, separateATestFromItsLambda, spanMultipleLines)
 
 
 {-| These `PipelineRule`s forbid "left pizza" (`<|`) pipelines that span
@@ -223,6 +223,10 @@ will be converted to:
 
     foo <| bar baz
 
+Note that all unnecessary left pipeline inputs will be removed (since those
+operators do not even add clarity), whereas only visually-simple right pipeline
+inputs are removed
+
 Configuration:
 
     noPipelinesWithSimpleInputs =
@@ -231,7 +235,7 @@ Configuration:
             |> andTryToFixThemBy eliminatingInputStep
             |> andCallThem "|> pipeline with simple input"
         , forbid leftPizzaPipelines
-            |> that haveASimpleInputStep
+            |> that haveAnUnnecessaryInputStep
             |> andTryToFixThemBy eliminatingInputStep
             |> andCallThem "<| pipeline with simple input"
         ]
@@ -244,7 +248,7 @@ noPipelinesWithSimpleInputs =
         |> andTryToFixThemBy eliminatingInputStep
         |> andCallThem "|> pipeline with simple input"
     , forbid leftPizzaPipelines
-        |> that haveASimpleInputStep
+        |> that haveAnUnnecessaryInputStep
         |> andTryToFixThemBy eliminatingInputStep
         |> andCallThem "<| pipeline with simple input"
     ]
