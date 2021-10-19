@@ -2556,6 +2556,31 @@ whitelisted =
                         , expectFail """117 |> modBy 3"""
                         , expectFail """10 |> logBase 2"""
                         ]
+        , test "do not flag the first application to a semantically-infix function, as it is not yet semantically infix" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> Maybe.andMap (bar baz)
+b =
+    2
+        |> logBase
+        |> 10
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> that (haveAnyStepThatIs aSemanticallyInfixFunction)
+                                |> fail
+                            , forbid rightPizzaPipelines
+                                |> that (doNot <| haveASecondStepThatIs aSemanticallyInfixFunction)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors [ expectFail """2
+        |> logBase
+        |> 10""" ]
         ]
 
 
