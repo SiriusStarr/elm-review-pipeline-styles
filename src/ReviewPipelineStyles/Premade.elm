@@ -15,7 +15,7 @@ construct one's own `PipelineRule`s.
 
 import ReviewPipelineStyles exposing (PipelineRule, andCallThem, andTryToFixThemBy, exceptThoseThat, forbid, leftCompositionPipelines, leftPizzaPipelines, parentheticalApplicationPipelines, rightCompositionPipelines, rightPizzaPipelines, that)
 import ReviewPipelineStyles.Fixes exposing (convertingToRightComposition, convertingToRightPizza, eliminatingInputStep, makingMultiline, makingSingleLine)
-import ReviewPipelineStyles.Predicates exposing (Operator, aConfusingNonCommutativeFunction, aSemanticallyInfixFunction, and, doNot, haveASimpleInputStep, haveAnyNonInputStepThatIs, haveAnyStepThatIs, haveFewerStepsThan, haveMoreStepsThan, separateATestFromItsLambda, spanMultipleLines)
+import ReviewPipelineStyles.Predicates exposing (aConfusingNonCommutativeFunction, aConfusingNonCommutativePrefixOperator, aSemanticallyInfixFunction, and, doNot, haveASimpleInputStep, haveAnyNonInputStepThatIs, haveAnyStepThatIs, haveFewerStepsThan, haveMoreStepsThan, separateATestFromItsLambda, spanMultipleLines)
 
 
 {-| These `PipelineRule`s forbid "left pizza" (`<|`) pipelines that span
@@ -271,42 +271,49 @@ The following however are not flagged:
 
     foo |> bar |> baz
 
+Note that left pipelines and parenthetical application pipelines are only
+flagged with confusing prefix operators, not functions like `compare`, since the
+arguments are in the correct order in those cases.
+
 Configuration:
 
     noPipelinesWithConfusingNonCommutativeFunctions =
-        let
-            createRule ( op, opName ) =
-                forbid op
-                    |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
-                    |> andCallThem (opName ++ " pipeline with confusing non-commutative function")
-        in
-        List.map createRule
-            [ ( rightPizzaPipelines, "|>" )
-            , ( leftPizzaPipelines, "<|" )
-            ]
-            ++ List.map createRule
-                [ ( rightCompositionPipelines, ">>" )
-                , ( leftCompositionPipelines, "<<" )
-                ]
+        [ forbid rightPizzaPipelines
+            |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
+            |> andCallThem "|> pipeline with confusing non-commutative function"
+        , forbid rightCompositionPipelines
+            |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
+            |> andCallThem ">> pipeline with confusing non-commutative function"
+        , forbid leftPizzaPipelines
+            |> that (haveAnyStepThatIs aConfusingNonCommutativePrefixOperator)
+            |> andCallThem "<| pipeline with confusing non-commutative prefix operator"
+        , forbid leftCompositionPipelines
+            |> that (haveAnyStepThatIs aConfusingNonCommutativePrefixOperator)
+            |> andCallThem "<< pipeline with confusing non-commutative prefix operator"
+        , forbid parentheticalApplicationPipelines
+            |> that (haveAnyStepThatIs aConfusingNonCommutativePrefixOperator)
+            |> andCallThem "parenthetical application pipeline with confusing non-commutative prefix operator"
+        ]
 
 -}
 noPipelinesWithConfusingNonCommutativeFunctions : List (PipelineRule ())
 noPipelinesWithConfusingNonCommutativeFunctions =
-    let
-        createRule : ( Operator pipelineType, String ) -> PipelineRule ()
-        createRule ( op, opName ) =
-            forbid op
-                |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
-                |> andCallThem (opName ++ " pipeline with confusing non-commutative function")
-    in
-    List.map createRule
-        [ ( rightPizzaPipelines, "|>" )
-        , ( leftPizzaPipelines, "<|" )
-        ]
-        ++ List.map createRule
-            [ ( rightCompositionPipelines, ">>" )
-            , ( leftCompositionPipelines, "<<" )
-            ]
+    [ forbid rightPizzaPipelines
+        |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
+        |> andCallThem "|> pipeline with confusing non-commutative function"
+    , forbid rightCompositionPipelines
+        |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
+        |> andCallThem ">> pipeline with confusing non-commutative function"
+    , forbid leftPizzaPipelines
+        |> that (haveAnyStepThatIs aConfusingNonCommutativePrefixOperator)
+        |> andCallThem "<| pipeline with confusing non-commutative prefix operator"
+    , forbid leftCompositionPipelines
+        |> that (haveAnyStepThatIs aConfusingNonCommutativePrefixOperator)
+        |> andCallThem "<< pipeline with confusing non-commutative prefix operator"
+    , forbid parentheticalApplicationPipelines
+        |> that (haveAnyStepThatIs aConfusingNonCommutativePrefixOperator)
+        |> andCallThem "parenthetical application pipeline with confusing non-commutative prefix operator"
+    ]
 
 
 {-| These `PipelineRule`s forbid any left pipelines that use a function named in
