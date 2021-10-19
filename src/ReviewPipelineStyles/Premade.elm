@@ -18,7 +18,7 @@ import ReviewPipelineStyles.Fixes exposing (convertingToRightComposition, conver
 import ReviewPipelineStyles.Predicates exposing (Operator, aConfusingNonCommutativeFunction, aSemanticallyInfixFunction, and, doNot, haveASimpleInputStep, haveAnyNonInputStepThatIs, haveAnyStepThatIs, haveFewerStepsThan, haveMoreStepsThan, separateATestFromItsLambda, spanMultipleLines)
 
 
-{-| These `PipelineRule`s forbids "left pizza" (`<|`) pipelines that span
+{-| These `PipelineRule`s forbid "left pizza" (`<|`) pipelines that span
 multiple lines, except for those that are used in the common/"canonical" case in
 tests, separating a test from its lambda function. Multiple operator pipelines
 will be converted to "right pizza" (`|>`) pipelines, while single operator ones
@@ -35,9 +35,9 @@ For example:
 
 will be converted to
 
-    foo
+    baz
         |> bar
-        |> baz
+        |> foo
 
     a <| b c
 
@@ -83,7 +83,7 @@ noMultilineLeftPizza =
 
 
 {-| These `PipelineRule`s forbid "right pizza" (`|>`) pipelines that are
-entirely on a single line and tries to fix them by making them multiline.
+entirely on a single line and try to fix them by making them multiline.
 
 For example:
 
@@ -115,7 +115,7 @@ noSingleLineRightPizza =
 
 
 {-| These `PipelineRule`s forbid "right pizza" (`|>`) and "left pizza" (`<|`)
-pipelines that have "simple" (unnecessary) inputs and tries to fix them by
+pipelines that have "simple" (unnecessary) inputs and try to fix them by
 eliminating the input step.
 
 For example:
@@ -275,7 +275,7 @@ noSemanticallyInfixFunctionsInLeftPipelines =
 
 
 {-| These `PipelineRule`s forbid parenthetical application with more than a
-single step and tries to fix it by converting it to "right pizza" (`|>`)
+single step and try to fix it by converting it to "right pizza" (`|>`)
 pipeline.
 
 For example:
