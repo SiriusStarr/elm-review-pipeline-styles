@@ -283,7 +283,6 @@ Configuration:
         List.map createRule
             [ ( rightPizzaPipelines, "|>" )
             , ( leftPizzaPipelines, "<|" )
-            , ( parentheticalApplicationPipelines, "parenthetical application" )
             ]
             ++ List.map createRule
                 [ ( rightCompositionPipelines, ">>" )
@@ -303,7 +302,6 @@ noPipelinesWithConfusingNonCommutativeFunctions =
     List.map createRule
         [ ( rightPizzaPipelines, "|>" )
         , ( leftPizzaPipelines, "<|" )
-        , ( parentheticalApplicationPipelines, "parenthetical application" )
         ]
         ++ List.map createRule
             [ ( rightCompositionPipelines, ">>" )
