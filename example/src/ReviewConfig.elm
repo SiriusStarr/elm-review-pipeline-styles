@@ -12,15 +12,27 @@ when inside the directory containing this file.
 -}
 
 import Review.Rule exposing (Rule)
-import ReviewPipelineStyles exposing (leftPizzaPipelines,exceptThoseThat, forbid, andReportCustomError)
-import ReviewPipelineStyles.Predicates exposing (separateATestFromItsLambda)
+import ReviewPipelineStyles
+import ReviewPipelineStyles.Premade
+    exposing
+        ( noMultilineLeftPizza
+        , noPipelinesWithConfusingNonCommutativeFunctions
+        , noPipelinesWithSimpleInputs
+        , noRepeatedParentheticalApplication
+        , noSemanticallyInfixFunctionsInLeftPipelines
+        , noSingleLineRightPizza
+        )
 
 
 config : List Rule
 config =
-    [ ReviewPipelineStyles.rule
-        [  forbid leftPizzaPipelines
-            |> exceptThoseThat separateATestFromItsLambda
-            |> andReportCustomError "No left pizza!" [ "Left pizza <| pipelines have been forbidden, except in the \"canonical\" test usage." ]
-        ]
+    [ ReviewPipelineStyles.rule <|
+        List.concat
+            [ noMultilineLeftPizza
+            , noSingleLineRightPizza
+            , noPipelinesWithSimpleInputs
+            , noRepeatedParentheticalApplication
+            , noPipelinesWithConfusingNonCommutativeFunctions
+            , noSemanticallyInfixFunctionsInLeftPipelines
+            ]
     ]

@@ -3,7 +3,7 @@
     "name": "SiriusStarr/elm-review-pipeline-styles",
     "summary": "Customizable elm-review rules for allowable pipeline styles.",
     "license": "GPL-3.0",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "exposed-modules": [
         "ReviewPipelineStyles",
         "ReviewPipelineStyles.Premade",
@@ -19,7 +19,7 @@
         "stil4m/elm-syntax": "7.2.8 <= v < 8.0.0"
     },
     "test-dependencies": {
-        "elm-explorations/test": "1.2.2 <= v < 2.0.0",
-        "elm/project-metadata-utils": "1.0.2 <= v < 2.0.0"
+        "elm/project-metadata-utils": "1.0.2 <= v < 2.0.0",
+        "elm-explorations/test": "1.2.2 <= v < 2.0.0"
     }
 }
