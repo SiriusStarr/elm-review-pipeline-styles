@@ -599,6 +599,16 @@ functions:
   - `atMost`
   - `atLeast`
 
+They are then required to have exactly one argument applied to them, as with no
+arguments, they are not yet infix (and with 2+ they are no longer functions).
+For example, the following are not infix:
+
+    -- This is "backwards" from how it reads
+    2 |> remainderBy |> 10
+
+    -- This doesn't even compile
+    foo |> remainderBy 2 10
+
 It also rules out confusing, non-commutative functions, even if they match the
 above.
 
@@ -622,11 +632,11 @@ aSemanticallyInfixFunction =
         \l node ->
             getFirstFunction l node
                 |> Maybe.map
-                    (\( _, f ) ->
+                    (\{ name, numAppliedArgs } ->
                         let
                             len : Int
                             len =
-                                String.length f
+                                String.length name
 
                             beginsWithWord : String -> Bool
                             beginsWithWord w =
@@ -636,12 +646,14 @@ aSemanticallyInfixFunction =
                                         String.length w
                                 in
                                 (len > wordLen)
-                                    && String.startsWith w f
-                                    && (String.all Char.isUpper <| String.slice wordLen (wordLen + 1) f)
+                                    && String.startsWith w name
+                                    && (String.all Char.isUpper <| String.slice wordLen (wordLen + 1) name)
                         in
-                        List.any beginsWithWord [ "and", "or" ]
-                            || (String.endsWith "By" f && len > 2)
-                            || Set.member f whitelist
+                        (numAppliedArgs == 1)
+                            && (List.any beginsWithWord [ "and", "or" ]
+                                    || (String.endsWith "By" name && len > 2)
+                                    || Set.member name whitelist
+                               )
                     )
                 |> Maybe.withDefault False
 
@@ -650,7 +662,7 @@ aSemanticallyInfixFunction =
 name. Note that this returns an impossible module of `[ "Record Access" ]` for
 record access functions.
 -}
-getFirstFunction : ModuleNameLookupTable -> Node Expression -> Maybe ( ModuleName, String )
+getFirstFunction : ModuleNameLookupTable -> Node Expression -> Maybe { moduleName : ModuleName, name : String, numAppliedArgs : Int }
 getFirstFunction lookupTable node =
     case Node.value node of
         ParenthesizedExpression e ->
@@ -658,19 +670,21 @@ getFirstFunction lookupTable node =
 
         RecordAccessFunction s ->
             -- This is a weird case, so assign a module name that is not possible.
-            Just ( [ "Record Access" ], s )
+            Just { moduleName = [ "Record Access" ], name = s, numAppliedArgs = 0 }
 
         PrefixOperator s ->
             moduleNameFor lookupTable node
-                |> Maybe.map (\mn -> ( mn, s ))
+                |> Maybe.map (\mn -> { moduleName = mn, name = s, numAppliedArgs = 0 })
 
         FunctionOrValue _ s ->
             moduleNameFor lookupTable node
-                |> Maybe.map (\mn -> ( mn, s ))
+                |> Maybe.map (\mn -> { moduleName = mn, name = s, numAppliedArgs = 0 })
 
         Application es ->
             List.head es
-                |> Maybe.andThen (getFirstFunction lookupTable)
+                |> Maybe.andThen
+                    (getFirstFunction lookupTable)
+                |> Maybe.map (\r -> { r | numAppliedArgs = List.length es - 1 })
 
         -- OperatorApplication
         -- Negation
@@ -751,7 +765,7 @@ aConfusingNonCommutativeFunction =
         \lookupTable node ->
             opPredicate lookupTable node
                 || (getFirstFunction lookupTable node
-                        |> Maybe.map (\f -> Set.member f blacklist)
+                        |> Maybe.map (\{ moduleName, name } -> Set.member ( moduleName, name ) blacklist)
                         |> Maybe.withDefault False
                    )
 
@@ -822,7 +836,7 @@ aConfusingNonCommutativePrefixOperator =
     stepPredicateWithLookupTable <|
         \lookupTable node ->
             getFirstFunction lookupTable node
-                |> Maybe.map (\f -> Set.member f blacklist)
+                |> Maybe.map (\{ moduleName, name } -> Set.member ( moduleName, name ) blacklist)
                 |> Maybe.withDefault False
 
 
