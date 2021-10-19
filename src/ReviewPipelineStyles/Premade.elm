@@ -1,4 +1,4 @@
-module ReviewPipelineStyles.Premade exposing (noMultilineLeftPizza, noSingleLineRightPizza, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noPipelinesWithConfusingNonCommutativeFunctions, noSemanticallyInfixFunctionsInLeftPipelines)
+module ReviewPipelineStyles.Premade exposing (noMultilineLeftPizza, noMultilineLeftComposition, noSingleLineRightPizza, noSingleLineRightComposition, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noPipelinesWithConfusingNonCommutativeFunctions, noSemanticallyInfixFunctionsInLeftPipelines)
 
 {-|
 
@@ -9,7 +9,7 @@ This package module some commonly useful rules, as well as how to construct
 them, both so that one might use them as is but also get a sense of how to
 construct one's own `PipelineRule`s.
 
-@docs noMultilineLeftPizza, noSingleLineRightPizza, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noPipelinesWithConfusingNonCommutativeFunctions, noSemanticallyInfixFunctionsInLeftPipelines
+@docs noMultilineLeftPizza, noMultilineLeftComposition, noSingleLineRightPizza, noSingleLineRightComposition, noPipelinesWithSimpleInputs, noRepeatedParentheticalApplication, noPipelinesWithConfusingNonCommutativeFunctions, noSemanticallyInfixFunctionsInLeftPipelines
 
 -}
 
@@ -82,6 +82,67 @@ noMultilineLeftPizza =
     ]
 
 
+{-| These `PipelineRule`s forbid left composition (`<<`) pipelines that span
+multiple lines. Multiple operator pipelines will be converted to right
+composition (`>>`) pipelines, while single operator ones will (try) to be fixed
+by placing them on a single line.
+
+For example:
+
+    foo
+        << bar
+        << baz
+
+    a
+        << b
+
+will be converted to
+
+    baz
+        >> bar
+        >> foo
+
+    a << b
+
+Configuration:
+
+    noMultilineLeftComposition =
+        [ forbid leftCompositionPipelines
+            |> that
+                (spanMultipleLines
+                    |> and (haveMoreStepsThan 1)
+                )
+            |> andTryToFixThemBy convertingToRightComposition
+            |> andCallThem "multiline << pipeline with several steps"
+        , forbid leftCompositionPipelines
+            |> that
+                (spanMultipleLines
+                    |> and (haveFewerStepsThan 2)
+                )
+            |> andTryToFixThemBy makingSingleLine
+            |> andCallThem "multiline << pipeline with one step"
+        ]
+
+-}
+noMultilineLeftComposition : List (PipelineRule ())
+noMultilineLeftComposition =
+    [ forbid leftCompositionPipelines
+        |> that
+            (spanMultipleLines
+                |> and (haveMoreStepsThan 1)
+            )
+        |> andTryToFixThemBy convertingToRightComposition
+        |> andCallThem "multiline << pipeline with several steps"
+    , forbid leftCompositionPipelines
+        |> that
+            (spanMultipleLines
+                |> and (haveFewerStepsThan 2)
+            )
+        |> andTryToFixThemBy makingSingleLine
+        |> andCallThem "multiline << pipeline with one step"
+    ]
+
+
 {-| These `PipelineRule`s forbid "right pizza" (`|>`) pipelines that are
 entirely on a single line and try to fix them by making them multiline.
 
@@ -111,6 +172,38 @@ noSingleLineRightPizza =
         |> that (doNot spanMultipleLines)
         |> andTryToFixThemBy makingMultiline
         |> andCallThem "single line |> pipeline"
+    ]
+
+
+{-| These `PipelineRule`s forbid right composition (`>>`) pipelines that are
+entirely on a single line and try to fix them by making them multiline.
+
+For example:
+
+    foo >> bar >> baz
+
+will be converted to:
+
+    foo
+        >> bar
+        >> baz
+
+Configuration:
+
+    noSingleLineRightComposition =
+        [ forbid rightCompositionPipelines
+            |> that (doNot spanMultipleLines)
+            |> andTryToFixThemBy makingMultiline
+            |> andCallThem "single line >> pipeline"
+        ]
+
+-}
+noSingleLineRightComposition : List (PipelineRule ())
+noSingleLineRightComposition =
+    [ forbid rightCompositionPipelines
+        |> that (doNot spanMultipleLines)
+        |> andTryToFixThemBy makingMultiline
+        |> andCallThem "single line >> pipeline"
     ]
 
 
