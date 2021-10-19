@@ -3,7 +3,7 @@
     "name": "SiriusStarr/elm-review-pipeline-styles",
     "summary": "Customizable elm-review rules for allowable pipeline styles.",
     "license": "GPL-3.0",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "exposed-modules": [
         "ReviewPipelineStyles",
         "ReviewPipelineStyles.Premade",
