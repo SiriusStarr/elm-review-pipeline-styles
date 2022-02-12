@@ -476,7 +476,7 @@ haveAnUnnecessaryInputStep =
         |> and (haveASecondStepThatIs ableToTakeAnArgument)
 
 
-{-| **DEPRECATED: Use [`haveAnInputStepThatIs`](#haveAnInputStepThatIs)
+{-| @deprecated **Use [`haveAnInputStepThatIs`](#haveAnInputStepThatIs)
 instead.**
 -}
 haveAnInputStepOf : (Node Expression -> Bool) -> Predicate anyType
