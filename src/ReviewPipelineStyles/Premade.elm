@@ -13,9 +13,49 @@ construct one's own `PipelineRule`s.
 
 -}
 
-import ReviewPipelineStyles exposing (PipelineRule, andCallThem, andTryToFixThemBy, exceptThoseThat, forbid, leftCompositionPipelines, leftPizzaPipelines, parentheticalApplicationPipelines, rightCompositionPipelines, rightPizzaPipelines, that)
-import ReviewPipelineStyles.Fixes exposing (convertingToRightComposition, convertingToRightPizza, eliminatingInputStep, makingMultiline, makingSingleLine)
-import ReviewPipelineStyles.Predicates exposing (aConfusingNonCommutativeFunction, aConfusingNonCommutativePrefixOperator, aSemanticallyInfixFunction, and, doNot, haveASimpleInputStep, haveAnUnnecessaryInputStep, haveAnyNonInputStepThatIs, haveAnyStepThatIs, haveFewerStepsThan, haveMoreStepsThan, separateATestFromItsLambda, spanMultipleLines)
+import ReviewPipelineStyles
+    exposing
+        ( PipelineRule
+        , andCallThem
+        , andTryToFixThemBy
+        , exceptThoseThat
+        , forbid
+        , leftCompositionPipelines
+        , leftPizzaPipelines
+        , parentheticalApplicationPipelines
+        , rightCompositionPipelines
+        , rightPizzaPipelines
+        , that
+        )
+import ReviewPipelineStyles.Fixes
+    exposing
+        ( convertingToRightComposition
+        , convertingToRightPizza
+        , eliminatingInputStep
+        , makingMultiline
+        , makingSingleLine
+        )
+import ReviewPipelineStyles.Predicates
+    exposing
+        ( aConfusingNonCommutativeFunction
+        , aConfusingNonCommutativePrefixOperator
+        , aDataStructure
+        , aFlowControlStructure
+        , aLambdaFunction
+        , aLetBlock
+        , aSemanticallyInfixFunction
+        , and
+        , doNot
+        , haveAParentNotSeparatedBy
+        , haveASimpleInputStep
+        , haveAnUnnecessaryInputStep
+        , haveAnyNonInputStepThatIs
+        , haveAnyStepThatIs
+        , haveFewerStepsThan
+        , haveMoreStepsThan
+        , separateATestFromItsLambda
+        , spanMultipleLines
+        )
 
 
 {-| These `PipelineRule`s forbid "left pizza" (`<|`) pipelines that span
@@ -377,8 +417,7 @@ noSemanticallyInfixFunctionsInLeftPipelines =
 
 
 {-| These `PipelineRule`s forbid parenthetical application with more than a
-single step and try to fix it by converting it to "right pizza" (`|>`)
-pipeline.
+single step and try to fix it by converting it to "right pizza" (`|>`) pipeline.
 
 For example:
 
@@ -390,11 +429,33 @@ will be converted to:
         |> bar
         |> foo
 
+It excludes ones that are nested immediately within a pipeline already, as is
+often the case with e.g. nested `map`s. For example:
+
+    foo
+        |> Maybe.map (Result.map (yi << er))
+        |> bar
+
+will not be flagged, as it cannot be converted to a "right pizza" (`|>`)
+pipeline or written in a way that is particularly "nicer."
+
 Configuration:
 
     noRepeatedParentheticalApplication =
         forbid parentheticalApplicationPipelines
-            |> that (haveMoreStepsThan 1)
+            |> that
+                (haveMoreStepsThan 1
+                    |> and
+                        (doNot
+                            (haveAParentNotSeparatedBy
+                                [ aLetBlock
+                                , aLambdaFunction
+                                , aFlowControlStructure
+                                , aDataStructure
+                                ]
+                            )
+                        )
+                )
             |> andTryToFixThemBy convertingToRightPizza
             |> andCallThem "parenthetical application with several steps"
 
@@ -402,7 +463,19 @@ Configuration:
 noRepeatedParentheticalApplication : List (PipelineRule ())
 noRepeatedParentheticalApplication =
     [ forbid parentheticalApplicationPipelines
-        |> that (haveMoreStepsThan 1)
+        |> that
+            (haveMoreStepsThan 1
+                |> and
+                    (doNot
+                        (haveAParentNotSeparatedBy
+                            [ aLetBlock
+                            , aLambdaFunction
+                            , aFlowControlStructure
+                            , aDataStructure
+                            ]
+                        )
+                    )
+            )
         |> andTryToFixThemBy convertingToRightPizza
         |> andCallThem "parenthetical application with several steps"
     ]
