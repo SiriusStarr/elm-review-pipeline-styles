@@ -1659,6 +1659,25 @@ c =
 """
                         , expectFail "foo  <| bar -- Comments!\n    <| baz"
                         ]
+        , test "does not mangle code" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo x
+        |> Maybe.map (Result.map (foo << bar))
+        |> nested
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "Maybe.map (Result.map (foo << bar))"
+                        ]
         ]
 
 
