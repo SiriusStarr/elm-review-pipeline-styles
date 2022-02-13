@@ -42,7 +42,7 @@ work with them directly.
 
 import Elm.Syntax.Node as Node
 import Elm.Syntax.Range exposing (Range)
-import Internal.Types as Types exposing (Operator(..), Predicate(..))
+import Internal.Types as Types exposing (NestedWithin(..), Operator(..), Predicate(..))
 import Review.Fix as Fix exposing (Fix)
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import ReviewPipelineStyles.Predicates
@@ -177,14 +177,15 @@ makingSingleLine =
 
 
 {-| Convert an application pipeline to right function application (`|>`). This
-requires there to be no internal comments (as they would be clobbered) and to
-not already be a right function application pipeline.
+requires there to be no internal comments (as they would be clobbered), to not
+already be a right function application pipeline, and to not be an immediate
+nested pipeline (as operator precedence rules preclude this).
 -}
 convertingToRightPizza : PipelineFix ApplicationPipeline
 convertingToRightPizza =
     fix <|
-        \extractSource ({ operator, internalComments } as pipeline) ->
-            if operator /= RightPizza && List.isEmpty internalComments then
+        \extractSource ({ operator, internalComments, parents } as pipeline) ->
+            if operator /= RightPizza && List.isEmpty internalComments && isNotImmediateChild parents then
                 Just
                     [ writeAs extractSource RightPizza pipeline
                         |> Fix.replaceRangeBy (Node.range pipeline.node)
@@ -195,14 +196,15 @@ convertingToRightPizza =
 
 
 {-| Convert an application pipeline to left function application (`<|`). This
-requires there to be no internal comments (as they would be clobbered) and to
-not already be a left function application pipeline.
+requires there to be no internal comments (as they would be clobbered), to not
+already be a left function application pipeline, and to not be an immediate
+nested pipeline (as operator precedence rules preclude this).
 -}
 convertingToLeftPizza : PipelineFix ApplicationPipeline
 convertingToLeftPizza =
     fix <|
-        \extractSource ({ operator, internalComments } as pipeline) ->
-            if operator /= LeftPizza && List.isEmpty internalComments then
+        \extractSource ({ operator, internalComments, parents } as pipeline) ->
+            if operator /= LeftPizza && List.isEmpty internalComments && isNotImmediateChild parents then
                 Just
                     [ writeAs extractSource LeftPizza pipeline
                         |> Fix.replaceRangeBy (Node.range pipeline.node)
@@ -231,14 +233,15 @@ convertingToParentheticalApplication =
 
 
 {-| Convert a composition pipeline to right function composition (`>>`). This
-requires there to be no internal comments (as they would be clobbered) and to
-not already be a right function composition pipeline.
+requires there to be no internal comments (as they would be clobbered), to not
+already be a right function composition pipeline, and to not be an immediate
+nested pipeline (as operator precedence rules preclude this).
 -}
 convertingToRightComposition : PipelineFix CompositionPipeline
 convertingToRightComposition =
     fix <|
-        \extractSource ({ operator, internalComments } as pipeline) ->
-            if operator /= RightComposition && List.isEmpty internalComments then
+        \extractSource ({ operator, internalComments, parents } as pipeline) ->
+            if operator /= RightComposition && List.isEmpty internalComments && isNotImmediateChild parents then
                 Just
                     [ writeAs extractSource RightComposition pipeline
                         |> Fix.replaceRangeBy (Node.range pipeline.node)
@@ -249,14 +252,15 @@ convertingToRightComposition =
 
 
 {-| Convert a composition pipeline to left function composition (`<<`). This
-requires there to be no internal comments (as they would be clobbered) and to
-not already be a left function composition pipeline.
+requires there to be no internal comments (as they would be clobbered), to not
+already be a left function composition pipeline, and to not be an immediate
+nested pipeline (as operator precedence rules preclude this).
 -}
 convertingToLeftComposition : PipelineFix CompositionPipeline
 convertingToLeftComposition =
     fix <|
-        \extractSource ({ operator, internalComments } as pipeline) ->
-            if operator /= LeftComposition && List.isEmpty internalComments then
+        \extractSource ({ operator, internalComments, parents } as pipeline) ->
+            if operator /= LeftComposition && List.isEmpty internalComments && isNotImmediateChild parents then
                 Just
                     [ writeAs extractSource LeftComposition pipeline
                         |> Fix.replaceRangeBy (Node.range pipeline.node)
@@ -264,6 +268,19 @@ convertingToLeftComposition =
 
             else
                 Nothing
+
+
+{-| Converting pipeline types should check that the pipeline is not immediately
+nested within another pipeline, or else it can mangle the code.
+-}
+isNotImmediateChild : List ( Operator (), NestedWithin ) -> Bool
+isNotImmediateChild parents =
+    case parents of
+        [] ->
+            True
+
+        ( _, NestedWithin { aLambdaFunction, aFlowControlStructure, aDataStructure, aLetBlock } ) :: _ ->
+            aLambdaFunction || aFlowControlStructure || aDataStructure || aLetBlock
 
 
 {-| Rewrite a pipeline as another operator type. Note that case must be taken
