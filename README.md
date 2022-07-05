@@ -63,7 +63,7 @@ elm-review --template SiriusStarr/elm-review-pipeline-styles/example
 
 ## Changlelog
 
-* `1.3.1` -- Improve handling of nested pipelines.
+* `1.3.2` -- Improve handling of nested pipelines.
   * 🐛 Do not allow fixes that would lead to compilation errors by converting
     a parenthetical pipeline that is immediately nested within another pipeline
     to another type.
