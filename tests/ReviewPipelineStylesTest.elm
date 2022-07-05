@@ -2531,6 +2531,35 @@ withinComplexStatements =
                         , expectFail """1 |> (-)"""
                         , expectFail """startOfList |> ((List.append) endOfList) |> whoops"""
                         ]
+        , test "doesn't flag a fully-saturated first step" <|
+            \() ->
+                """module A exposing (..)
+
+import Dict exposing (diff)
+
+parentheticalOperator =
+    startOfList |> (++) endOfList |> whoops
+function =
+    diff keepDict subtractDict |> whoops
+withParentheses =
+    ((List.append) startOfList endOfList) |> whoops
+commutative =
+    1 |> (+) 2
+otherThings =
+    foo |> bar |> baz
+withinComplexStatements =
+    foo |> ( if (-) 2 3 == 0 then True else False )
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid rightPizzaPipelines
+                                |> that (haveAnyStepThatIs aConfusingNonCommutativeFunction)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """startOfList |> (++) endOfList |> whoops"""
+                        ]
         ]
 
 
