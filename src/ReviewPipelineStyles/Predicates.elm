@@ -735,6 +735,19 @@ or on the following blacklist of such functions:
 
   - `Result.Extra.or`
 
+Note that fully-saturated functions on the blacklist are allowed, e.g.
+
+    Set.diff a b
+        |> Set.toList
+
+is allowed, while
+
+    b
+        |> Set.diff a
+        |> Set.toList
+
+is not.
+
 If you have suggestions for additions to this list, please open an issue or PR
 on Github: <https://github.com/SiriusStarr/elm-review-pipeline-styles/issues>
 
@@ -765,7 +778,7 @@ aConfusingNonCommutativeFunction =
         \lookupTable node ->
             opPredicate lookupTable node
                 || (getFirstFunction lookupTable node
-                        |> Maybe.map (\{ moduleName, name } -> Set.member ( moduleName, name ) blacklist)
+                        |> Maybe.map (\{ moduleName, name, numAppliedArgs } -> numAppliedArgs == 1 && Set.member ( moduleName, name ) blacklist)
                         |> Maybe.withDefault False
                    )
 
