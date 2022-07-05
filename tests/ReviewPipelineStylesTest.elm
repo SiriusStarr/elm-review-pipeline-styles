@@ -2537,8 +2537,10 @@ withinComplexStatements =
 
 import Dict exposing (diff)
 
-parentheticalOperator =
-    startOfList |> (++) endOfList |> whoops
+saturatedOperator =
+    startOfList ++ endOfList |> foo
+saturatedPrefixOperator =
+    (++) endOfList startOfList |> whoops
 function =
     diff keepDict subtractDict |> whoops
 withParentheses =
@@ -2557,9 +2559,7 @@ withinComplexStatements =
                                 |> fail
                             ]
                         )
-                    |> Review.Test.expectErrors
-                        [ expectFail """startOfList |> (++) endOfList |> whoops"""
-                        ]
+                    |> Review.Test.expectErrors [ expectFail """(++) endOfList startOfList |> whoops""" ]
         ]
 
 
