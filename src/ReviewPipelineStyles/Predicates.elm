@@ -737,12 +737,14 @@ or on the following blacklist of such functions:
 
 Note that fully-saturated functions on the blacklist are allowed, e.g.
 
+    -- Passes
     Set.diff a b
         |> Set.toList
 
 is allowed, while
 
     b
+        -- Fails
         |> Set.diff a
         |> Set.toList
 

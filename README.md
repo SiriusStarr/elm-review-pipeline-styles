@@ -63,6 +63,43 @@ elm-review --template SiriusStarr/elm-review-pipeline-styles/example
 
 ## Changlelog
 
+* `1.3.3`
+  * 🐛 `aConfusingNonCommutativeFunction` no longer flags fully-saturated
+    functions, since they are not actually confusing.  For example:
+
+    ```elm
+    Set.diff a b -- Passes
+        |> Set.toList
+    ```
+
+    is now allowed, while
+
+    ```elm
+    b
+        |> Set.diff a -- Fails
+        |> Set.toList
+    ```
+
+    is not.  This was not the behavior previously, when both would have been
+    flagged as confusing.
+
+    Non-commutative operator behavior is unchanged, i.e. they are still not
+    allowed in prefix form even when fully-saturated, as they remain confusing.
+    For example:
+
+    ```elm
+    xs ++ ys -- Passes
+        |> List.map foo
+    ```
+
+    is still allowed, while
+
+    ```elm
+    (++) xs ys -- Fails
+        |> List.map foo
+    ```
+
+    is still not.
 * `1.3.2` -- Improve handling of nested pipelines.
   * 🐛 Do not allow fixes that would lead to compilation errors by converting
     a parenthetical pipeline that is immediately nested within another pipeline
