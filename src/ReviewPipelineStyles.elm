@@ -145,6 +145,12 @@ rule rules =
     Rule.newModuleRuleSchemaUsingContextCreator "ReviewPipelineStyles" initialContext
         |> Rule.withCommentsVisitor (\cs context -> ( [], { context | comments = cs } ))
         |> Rule.withDeclarationEnterVisitor (\d context -> ( declarationVisitor (List.map (ruleToFilter context) rules) context d, context ))
+        |> (if List.any (\(PipelineRule { fix }) -> fix /= Nothing) rules then
+                Rule.providesFixesForModuleRule
+
+            else
+                identity
+           )
         |> Rule.fromModuleRuleSchema
 
 
