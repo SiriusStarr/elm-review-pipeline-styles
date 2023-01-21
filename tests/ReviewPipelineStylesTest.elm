@@ -1240,7 +1240,7 @@ eliminatingInputStepTests =
                     cases
                     fixes
                     |> Expect.all
-                    |> (|>) ()
+                    |> (\f -> f ())
         , test "eliminates simple input left and parenthetical" <|
             \() ->
                 let
@@ -1300,7 +1300,7 @@ eliminatingInputStepTests =
                     cases
                     fixes
                     |> Expect.all
-                    |> (|>) ()
+                    |> (\f -> f ())
         , test "unfixable cases" <|
             \() ->
                 """module A exposing (..)
@@ -1401,7 +1401,7 @@ makingMultilineTests =
                     cases
                     fixes
                     |> Expect.all
-                    |> (|>) ()
+                    |> (\f -> f ())
         , test "unfixable cases" <|
             \() ->
                 """module A exposing (..)
@@ -1503,7 +1503,7 @@ makingSingleLineTests =
                     cases
                     fixes
                     |> Expect.all
-                    |> (|>) ()
+                    |> (\f -> f ())
         , test "unfixable cases" <|
             \() ->
                 """module A exposing (..)

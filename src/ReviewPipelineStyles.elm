@@ -54,7 +54,6 @@ import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import Review.Rule as Rule exposing (Error, Rule)
 import ReviewPipelineStyles.Fixes exposing (PipelineFix)
 import ReviewPipelineStyles.Predicates exposing (ApplicationPipeline, CompositionPipeline, Operator, Predicate, or)
-import String exposing (right)
 
 
 {-| Reports pipelines that are not valid by user-defined rules. For example,
