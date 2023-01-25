@@ -5,7 +5,7 @@ rules to forbid pipelines for code-style reasons.
 
 ## Provided rules
 
-* [🔧 `ReviewPipelineStyles`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles/) - Reports pipelines that are not valid by user-defined rules.
+* [🔧 `ReviewPipelineStyles`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles/) - Reports pipelines that are not valid by user-defined rules.
 
 For example, the usage of `<|` or the usage of excessively-long `|>` pipelines.
 
@@ -20,7 +20,7 @@ This rule works with the following pipeline types:
 * `foo (bar (baz (i (j k))))` -- Parenthetical application pipelines.
 
 If you don't know where to start, be sure to check out
-[`ReviewPipelineStyles.Premade`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Premade/)
+[`ReviewPipelineStyles.Premade`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Premade/)
 for some ready-made rules, as well as examples of how to construct them.
 
 ## Configuration
@@ -61,8 +61,9 @@ You can try the example configuration above out by running the following command
 elm-review --template SiriusStarr/elm-review-pipeline-styles/example
 ```
 
-## Changlelog
+## Changelog
 
+* `1.3.5` -- Bump `elm-review` to v2.12.1 for upstream bugfix.
 * `1.3.4` -- Bump `elm-review` to v2.11.1 and mark rule as providing fixes, if
   it does.
 * `1.3.3`
@@ -122,28 +123,28 @@ elm-review --template SiriusStarr/elm-review-pipeline-styles/example
   weren't yet infix, because no args had been applied.  Now it requires exactly
   one arg to be applied.
 * `1.3.0`
-  * 🚸 Improved [`noPipelinesWithSimpleInputs`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Premade/#noPipelinesWithSimpleInputs).
+  * 🚸 Improved [`noPipelinesWithSimpleInputs`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Premade/#noPipelinesWithSimpleInputs).
     Now flags *all* unnecessary *left* inputs (since the operator does not
     improve clarity in any way), but only flags simple (non-semantic) right
     inputs.
-  * 🚸 Improved [`noPipelinesWithConfusingNonCommutativeFunctions`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Premade/#noPipelinesWithConfusingNonCommutativeFunctions).
+  * 🚸 Improved [`noPipelinesWithConfusingNonCommutativeFunctions`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Premade/#noPipelinesWithConfusingNonCommutativeFunctions).
     Now only flags *all* non-commutative functions in *right* pipelines, whereas
     only confusing *prefix operators* are flagged in *left*/parenthetical
     pipelines, as the other functions are in the correct argument order.
-  * 🚩 Added new [`StepPredicate`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Predicates/#step-predicates):
-    [`aConfusingNonCommutativePrefixOperator`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Predicates/#aConfusingNonCommutativePrefixOperator)
+  * 🚩 Added new [`StepPredicate`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Predicates/#step-predicates):
+    [`aConfusingNonCommutativePrefixOperator`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Predicates/#aConfusingNonCommutativePrefixOperator)
     This only flags non-commutative prefix operators rather than also flagging
     e.g. `compare`.
 * `1.2.0`
-  * ✨ Added new [`noMultilineLeftComposition`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Premade/#noMultilineLeftComposition)
-  and [`noSingleLineRightComposition`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Premade/#noSingleLineRightComposition)
+  * ✨ Added new [`noMultilineLeftComposition`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Premade/#noMultilineLeftComposition)
+  and [`noSingleLineRightComposition`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Premade/#noSingleLineRightComposition)
   premade rules.
   * 📝 Fix minor doc issues.
 * `1.1.0`
   * Added premade rules for ease of use!  Find them in the
-    [`ReviewPipelineStyles.Premade`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Premade/)
+    [`ReviewPipelineStyles.Premade`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Premade/)
     module.  The documentation for these rules includes the source for how to construct them as a sort of tutorial to learn to create your own.
-  * Added [`StepPredicate`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.4/ReviewPipelineStyles-Predicates/#step-predicates)s.  Easily inspect
+  * Added [`StepPredicate`](https://package.elm-lang.org/packages/SiriusStarr/elm-review-pipeline-styles/1.3.5/ReviewPipelineStyles-Predicates/#step-predicates)s.  Easily inspect
     individual steps of pipelines!
   * Updated `elm-syntax` to avoid mangling fixes involving some lambdas.
   * Minor documentation fixes/clarifications.
