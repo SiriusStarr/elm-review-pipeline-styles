@@ -5,10 +5,31 @@ module ReviewPipelineStyles.Fixes exposing
     )
 
 {-| This module contains various `PipelineFix`s that can be used to fix failing
-pipelines.
+pipelines. Pre-made rules already contain fixes were possible, so if you're only
+using those, you shouldn't need this module.
+
+Fixes may be specified with
+[`ReviewPipelineStyles.andTryToFixThemBy`](ReviewPipelineStyles#andTryToFixThemBy)
+as follows. If, for example, one made the following rule to detect undesired
+multi-step `<|` pipelines:
+
+    forbid leftPizzaPipelines
+        |> that (haveMoreStepsThan 1)
+        |> andCallThem "<| pipeline with several steps"
+
+then automatic fixes could be used to convert such pipelines to `|>` pipelines as follows:
+
+    forbid leftPizzaPipelines
+        |> that (haveMoreStepsThan 1)
+        -- Adding fixes vvvv
+        |> andTryToFixThemBy convertingToRightPizza
+        -- Adding fixes ^^^^
+        |> andCallThem "<| pipeline with several steps"
 
 Note that all fixes will only run if it is **possible** to fix the pipeline that
-way, i.e. that the fix will not generate invalid code.
+way, i.e. that the fix will not generate invalid code. Look through
+[Fixes](#fixes) for pre-made fixes or write your own using [Custom
+Fixes](#custom-fixes).
 
 
 ## Fixes

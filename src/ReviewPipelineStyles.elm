@@ -191,6 +191,18 @@ Or, to forbid only `|>` pipelines that are extremely long, you could use:
         |> that (haveMoreStepsThan 10)
         |> andCallThem "overly long |> pipeline"
 
+Fixes can be added using [`andTryToFixThemBy`](#andTryToFixThemBy), e.g.
+
+    forbid leftPizzaPipelines
+        |> that (haveMoreStepsThan 10)
+        -- Adding fixes vvvv
+        |> andTryToFixThemBy convertingToRightPizza
+        -- Adding fixes ^^^^
+        |> andCallThem "<| pipeline with several steps"
+
+For the available fixes (or to make custom ones), check out
+[`ReviewPipelineStyles.Fixes`](ReviewPipelineStyles-Fixes).
+
 -}
 type PipelineRule pipelineType
     = PipelineRule
