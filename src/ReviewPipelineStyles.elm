@@ -692,21 +692,24 @@ getParentheticalPipeline ({ comments } as context) parents node =
             case Node.value e of
                 Application es ->
                     case Maybe.map (Tuple.mapFirst Node.value) <| ListX.unconsLast es of
-                        Just ( ParenthesizedExpression e_, es_ ) ->
-                            makeAppNode es_
-                                |> Maybe.map
-                                    (\step ->
-                                        go e_
-                                            |> (\( input, steps, children ) ->
-                                                    ( input
-                                                    , { node = step, totalRangeAtThisStep = Node.range e } :: steps
-                                                      -- We want to check each of the other applied expressions individually, else we might find a parenthetical pipeline that is actually not the terminal argument; thus, we add `es_`, not `step`
-                                                    , es_ ++ children
-                                                    )
-                                               )
-                                    )
-                                -- Pipeline ended
-                                |> Maybe.withDefault ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
+                        Just ( ParenthesizedExpression prevPipelineStep, (_ :: _ :: _) as step ) ->
+                            go prevPipelineStep
+                                |> (\( input, steps, children ) ->
+                                        ( input
+                                        , { node = Node (Range.combine <| List.map Node.range step) (Application step), totalRangeAtThisStep = Node.range e } :: steps
+                                          -- We want to check each of the other applied expressions individually, else we might find a parenthetical pipeline that is actually not the terminal argument; thus, we add the expressions, not the actual application step
+                                        , step ++ children
+                                        )
+                                   )
+
+                        Just ( ParenthesizedExpression prevPipelineStep, [ step ] ) ->
+                            go prevPipelineStep
+                                |> (\( input, steps, children ) ->
+                                        ( input
+                                        , { node = step, totalRangeAtThisStep = Node.range e } :: steps
+                                        , step :: children
+                                        )
+                                   )
 
                         _ ->
                             -- Pipeline ended
@@ -715,19 +718,6 @@ getParentheticalPipeline ({ comments } as context) parents node =
                 _ ->
                     -- Pipeline ended
                     ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
-
-        makeAppNode : List (Node Expression) -> Maybe (Node Expression)
-        makeAppNode es =
-            -- Have to convert into a node less the last element of the application, since that's what the "step" of the pipeline is
-            case es of
-                [] ->
-                    Nothing
-
-                [ e ] ->
-                    Just e
-
-                _ ->
-                    Just <| Node (Range.combine <| List.map Node.range es) (Application es)
     in
     case go node of
         ( _, [], _ ) ->
