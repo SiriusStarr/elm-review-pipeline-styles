@@ -748,6 +748,42 @@ a = foo |> bar (a <| (b (i (j k))) <| c) |> baz
                         , expectFail """a <| (b (i (j k))) <| c"""
                         , expectFail """b (i (j k))"""
                         ]
+        , test "does flag sub-parenthetical pipelines" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    Maybe.Extra.andThen2
+        foo
+        (bar (foo (a b)))
+        (baz 0)
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> that (haveMoreStepsThan 1)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors [ expectFail "bar (foo (a b))" ]
+        , test "does not count parent in sub-parenthetical pipeline" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    Maybe.Extra.andThen2
+        foo
+        (bar (foo (a b)))
+        (baz 0)
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> that (haveMoreStepsThan 2)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectNoErrors
         ]
 
 
@@ -2629,6 +2665,24 @@ b =
                     |> Review.Test.expectErrors [ expectFail """2
         |> logBase
         |> 10""" ]
+        , test "do not flag andThenNs, as they cannot be written infix" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    Maybe.Extra.andThen2
+        foo
+        (bar 1)
+        (baz 0)
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> that (haveAnyStepThatIs aSemanticallyInfixFunction)
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectNoErrors
         ]
 
 
