@@ -687,24 +687,34 @@ from an `Application` node or fail.
 getParentheticalPipeline : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
 getParentheticalPipeline ({ comments } as context) parents node =
     let
-        go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range } )
+        go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range }, List (Node Expression) )
         go e =
             case Node.value e of
                 Application es ->
                     case Maybe.map (Tuple.mapFirst Node.value) <| ListX.unconsLast es of
                         Just ( ParenthesizedExpression e_, es_ ) ->
                             makeAppNode es_
-                                |> Maybe.map (\step -> Tuple.mapSecond ((::) { node = step, totalRangeAtThisStep = Node.range e }) <| go e_)
+                                |> Maybe.map
+                                    (\step ->
+                                        go e_
+                                            |> (\( input, steps, children ) ->
+                                                    ( input
+                                                    , { node = step, totalRangeAtThisStep = Node.range e } :: steps
+                                                      -- We want to check each of the other applied expressions individually, else we might find a parenthetical pipeline that is actually not the terminal argument; thus, we add `es_`, not `step`
+                                                    , es_ ++ children
+                                                    )
+                                               )
+                                    )
                                 -- Pipeline ended
-                                |> Maybe.withDefault ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
+                                |> Maybe.withDefault ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
 
                         _ ->
                             -- Pipeline ended
-                            ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
+                            ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
 
                 _ ->
                     -- Pipeline ended
-                    ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
+                    ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
 
         makeAppNode : List (Node Expression) -> Maybe (Node Expression)
         makeAppNode es =
@@ -720,28 +730,27 @@ getParentheticalPipeline ({ comments } as context) parents node =
                     Just <| Node (Range.combine <| List.map Node.range es) (Application es)
     in
     case go node of
-        ( _, [] ) ->
+        ( _, [], _ ) ->
             -- No steps, so not a pipeline
             Nothing
 
-        ( input, steps ) ->
+        ( input, steps, childNodes ) ->
             (input :: List.reverse steps)
                 |> (\allSteps ->
                         List.concatMap
-                            (.node
-                                >> descendToPipelines context
-                                    (( Types.ParentheticalApplication
-                                     , NestedWithin
-                                        { aDataStructure = False
-                                        , aFlowControlStructure = False
-                                        , aLetBlock = False
-                                        , aLambdaFunction = False
-                                        }
-                                     )
-                                        :: parents
-                                    )
+                            (descendToPipelines context
+                                (( Types.ParentheticalApplication
+                                 , NestedWithin
+                                    { aDataStructure = False
+                                    , aFlowControlStructure = False
+                                    , aLetBlock = False
+                                    , aLambdaFunction = False
+                                    }
+                                 )
+                                    :: parents
+                                )
                             )
-                            allSteps
+                            childNodes
                             |> (::)
                                 { operator = Types.ParentheticalApplication
                                 , steps = allSteps
