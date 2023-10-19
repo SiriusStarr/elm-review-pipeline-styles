@@ -442,7 +442,7 @@ ruleToFilter ({ lookupTable } as context) (PipelineRule { forbidden, except, ope
             && MaybeX.unwrap True matchesPredicate forbidden
             && not (MaybeX.unwrap False matchesPredicate except)
     then
-        Maybe.withDefault (Fail { message = "Invalid ReviewPipelineStyles config!", details = [ "This should be impossible; please open a Github issue with your elm-review config!" ] }) error
+        MaybeX.withDefaultLazy (\() -> Fail { message = "Invalid ReviewPipelineStyles config!", details = [ "This should be impossible; please open a Github issue with your elm-review config!" ] }) error
             |> makeError context pipeline fix
             |> Just
 
@@ -516,12 +516,12 @@ descendToPipelines context parents node =
     case Node.value node of
         OperatorApplication op dir left right ->
             getPipeline context parents node op dir left right
-                |> Maybe.withDefault (go left ++ go right)
+                |> MaybeX.withDefaultLazy (\() -> go left ++ go right)
 
         Application es ->
             -- Application might be the start of a parenthetical application pipeline
             getParentheticalPipeline context parents node
-                |> Maybe.withDefault (List.concatMap go es)
+                |> MaybeX.withDefaultLazy (\() -> List.concatMap go es)
 
         -- Descend into subexpression until we encounter a pipeline
         ParenthesizedExpression e ->
