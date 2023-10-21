@@ -61,7 +61,8 @@ work with them directly.
 
 -}
 
-import Elm.Syntax.Node as Node
+import Elm.Syntax.Expression exposing (Expression(..))
+import Elm.Syntax.Node as Node exposing (Node)
 import Elm.Syntax.Range exposing (Range)
 import Internal.Types as Types exposing (NestedWithin(..), Operator(..), Predicate(..))
 import Review.Fix as Fix exposing (Fix)
@@ -327,12 +328,110 @@ writeAs extractSource op { steps } =
                     ( " << ", List.reverse, identity )
 
                 ParentheticalApplication ->
-                    ( " (", List.reverse, \s -> s ++ String.repeat (List.length steps - 1) ")" )
-    in
-    List.map (\{ node } -> extractSource <| Node.range node) steps
+    List.map (\{ node } -> makeStepAsString extractSource node) steps
         |> orderSteps
         |> String.join concatOp
         |> finalize
+
+
+{-| Given a source extractor, write an expression as a string, wrapping it in
+parentheses if necessary.
+-}
+makeStepAsString : (Range -> String) -> Node Expression -> String
+makeStepAsString extractSource node =
+    let
+        needsParentheses : Bool
+        needsParentheses =
+            case Node.value node of
+                -- Literals
+                UnitExpr ->
+                    False
+
+                Integer _ ->
+                    False
+
+                Hex _ ->
+                    False
+
+                RecordExpr _ ->
+                    False
+
+                Literal _ ->
+                    False
+
+                CharLiteral _ ->
+                    False
+
+                GLSLExpression _ ->
+                    False
+
+                RecordUpdateExpression _ _ ->
+                    False
+
+                ListExpr _ ->
+                    False
+
+                Floatable _ ->
+                    False
+
+                TupledExpression _ ->
+                    False
+
+                -- Just values
+                FunctionOrValue _ _ ->
+                    False
+
+                RecordAccess _ _ ->
+                    False
+
+                RecordAccessFunction _ ->
+                    False
+
+                PrefixOperator _ ->
+                    False
+
+                Operator _ ->
+                    -- Impossible
+                    False
+
+                Negation _ ->
+                    -- Anything that could be negated is fine
+                    False
+
+                Application _ ->
+                    -- Higher precedence than any pipeline
+                    False
+
+                ParenthesizedExpression _ ->
+                    -- Already has them
+                    False
+
+                -- Best to wrap them to prevent problems
+                LambdaExpression _ ->
+                    True
+
+                OperatorApplication _ _ _ _ ->
+                    -- Safer to wrap it than to depend on precedence
+                    True
+
+                IfBlock _ _ _ ->
+                    True
+
+                CaseExpression _ ->
+                    True
+
+                LetExpression _ ->
+                    True
+    in
+    Node.range node
+        |> extractSource
+        |> (\s ->
+                if needsParentheses then
+                    "(" ++ s ++ ")"
+
+                else
+                    s
+           )
 
 
 {-| Create a `PipelineFix` from a function that takes a source code extractor
