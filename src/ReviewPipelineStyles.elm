@@ -464,7 +464,7 @@ declarationVisitor filters context d =
         Declaration.FunctionDeclaration { declaration } ->
             Node.value declaration
                 |> .expression
-                |> descendToPipelines context []
+                |> descendToPipelines context [] Nothing
                 |> List.filterMap (MaybeX.oneOf filters)
                 |> List.concat
 
@@ -478,21 +478,22 @@ declarationVisitor filters context d =
             []
 
 
-{-| Given a list of parent pipelines and an expression node, check for child
-pipelines within that node, descending as necessary.
+{-| Given context, an immediate parent expression, a list of parent pipelines,
+and an expression node, check for child pipelines within that node, descending
+as necessary.
 -}
-descendToPipelines : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> List Pipeline
-descendToPipelines context parents node =
+descendToPipelines : Context -> List ( Operator (), NestedWithin ) -> Maybe (Node Expression) -> Node Expression -> List Pipeline
+descendToPipelines context parents immediateParent node =
     let
         go : Node Expression -> List Pipeline
         go =
-            descendToPipelines context parents
+            descendToPipelines context parents (Just node)
 
         goIn : (NestedWithin -> NestedWithin) -> Node Expression -> List Pipeline
         goIn f =
             case List.head parents of
                 Just ( op, n ) ->
-                    descendToPipelines context (( op, f n ) :: List.drop 1 parents)
+                    descendToPipelines context (( op, f n ) :: List.drop 1 parents) (Just node)
 
                 _ ->
                     go
@@ -515,12 +516,12 @@ descendToPipelines context parents node =
     in
     case Node.value node of
         OperatorApplication op dir left right ->
-            getPipeline context parents node op dir left right
+            getPipeline context parents immediateParent node op dir left right
                 |> MaybeX.withDefaultLazy (\() -> go left ++ go right)
 
         Application es ->
             -- Application might be the start of a parenthetical application pipeline
-            getParentheticalPipeline context parents node
+            getParentheticalPipeline context parents immediateParent node
                 |> MaybeX.withDefaultLazy (\() -> List.concatMap go es)
 
         -- Descend into subexpression until we encounter a pipeline
@@ -586,38 +587,39 @@ descendToPipelines context parents node =
             []
 
 
-{-| Given a list of parent pipelines, get a pipeline from an operator
-application or fail if it's not a pipeline.
+{-| Given context, a list of parent pipelines, and an immediate parent node, get
+a pipeline from an operator application or fail if it's not a pipeline.
 -}
-getPipeline : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
-getPipeline ({ comments } as context) parents node op dir left right =
+getPipeline : Context -> List ( Operator (), NestedWithin ) -> Maybe (Node Expression) -> Node Expression -> String -> InfixDirection -> Node Expression -> Node Expression -> Maybe (List Pipeline)
+getPipeline ({ comments } as context) parents immediateParent node op dir left right =
     let
-        go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range } )
-        go e =
+        go : Maybe (Node Expression) -> Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range }, List ( Maybe (Node Expression), Node Expression ) )
+        go newParent e =
             case Node.value e of
                 OperatorApplication op_ dir_ left_ right_ ->
                     case ( op == op_ && dir == dir_, dir_ ) of
                         ( True, Left ) ->
-                            go left_
-                                |> Tuple.mapSecond ((::) { node = right_, totalRangeAtThisStep = Node.range e })
+                            go (Just e) left_
+                                |> (\( input, steps, children ) -> ( input, { node = right_, totalRangeAtThisStep = Node.range e } :: steps, ( Just e, right_ ) :: children ))
 
                         ( True, Right ) ->
-                            go right_
-                                |> Tuple.mapSecond ((::) { node = left_, totalRangeAtThisStep = Node.range e })
+                            go (Just e) right_
+                                |> (\( input, steps, children ) -> ( input, { node = left_, totalRangeAtThisStep = Node.range e } :: steps, ( Just e, left_ ) :: children ))
 
                         _ ->
                             -- Pipeline ended
-                            ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
+                            ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ ( newParent, e ) ] )
 
                 _ ->
                     -- Pipeline ended
-                    ( { node = e, totalRangeAtThisStep = Node.range e }, [] )
+                    ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ ( newParent, e ) ] )
 
-        makePipeline : Operator () -> List { node : Node Expression, totalRangeAtThisStep : Range } -> List Pipeline
-        makePipeline operator steps =
-            List.concatMap
-                (.node
-                    >> descendToPipelines context
+        makePipeline : List ( Maybe (Node Expression), Node Expression ) -> Operator () -> List { node : Node Expression, totalRangeAtThisStep : Range } -> List Pipeline
+        makePipeline children operator steps =
+            let
+                checkChildren : ( Maybe (Node Expression), Node Expression ) -> List Pipeline
+                checkChildren ( p, n ) =
+                    descendToPipelines context
                         (( operator
                          , NestedWithin
                             { aLambdaFunction = False
@@ -628,52 +630,55 @@ getPipeline ({ comments } as context) parents node op dir left right =
                          )
                             :: parents
                         )
-                )
-                steps
+                        p
+                        n
+            in
+            List.concatMap checkChildren children
                 |> (::)
                     { operator = operator
                     , steps = steps
                     , node = node
                     , parents = parents
+                    , immediateParent = immediateParent
                     , internalComments = getCommentsIn (Node.range node) comments
                     }
     in
     case ( op, dir ) of
         ( "|>", Left ) ->
-            go left
-                |> (\( input, steps ) ->
+            go immediateParent left
+                |> (\( input, steps, children ) ->
                         input
                             :: List.reverse ({ node = right, totalRangeAtThisStep = Node.range node } :: steps)
-                            |> makePipeline Types.RightPizza
+                            |> makePipeline children Types.RightPizza
                    )
                 |> Just
 
         ( "<|", Right ) ->
-            go right
-                |> (\( input, steps ) ->
+            go immediateParent right
+                |> (\( input, steps, children ) ->
                         input
                             :: List.reverse ({ node = left, totalRangeAtThisStep = Node.range node } :: steps)
-                            |> makePipeline Types.LeftPizza
+                            |> makePipeline children Types.LeftPizza
                    )
                 |> Just
 
         ( ">>", Right ) ->
-            go right
-                |> (\( input, steps ) ->
+            go immediateParent right
+                |> (\( input, steps, children ) ->
                         input
                             :: List.reverse ({ node = left, totalRangeAtThisStep = Node.range node } :: steps)
                             |> List.reverse
-                            |> makePipeline Types.RightComposition
+                            |> makePipeline children Types.RightComposition
                    )
                 |> Just
 
         ( "<<", Left ) ->
-            go left
-                |> (\( input, steps ) ->
+            go immediateParent left
+                |> (\( input, steps, children ) ->
                         input
                             :: List.reverse ({ node = right, totalRangeAtThisStep = Node.range node } :: steps)
                             |> List.reverse
-                            |> makePipeline Types.LeftComposition
+                            |> makePipeline children Types.LeftComposition
                    )
                 |> Just
 
@@ -684,42 +689,58 @@ getPipeline ({ comments } as context) parents node op dir left right =
 {-| Given a list of parent pipelines, get a parenthetical application pipeline
 from an `Application` node or fail.
 -}
-getParentheticalPipeline : Context -> List ( Operator (), NestedWithin ) -> Node Expression -> Maybe (List Pipeline)
-getParentheticalPipeline ({ comments } as context) parents node =
+getParentheticalPipeline : Context -> List ( Operator (), NestedWithin ) -> Maybe (Node Expression) -> Node Expression -> Maybe (List Pipeline)
+getParentheticalPipeline ({ comments } as context) parents immediateParent node =
     let
-        go : Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range }, List (Node Expression) )
-        go e =
+        go : Maybe (Node Expression) -> Node Expression -> ( { node : Node Expression, totalRangeAtThisStep : Range }, List { node : Node Expression, totalRangeAtThisStep : Range }, List ( Maybe (Node Expression), Node Expression ) )
+        go newParent e =
             case Node.value e of
                 Application es ->
-                    case Maybe.map (Tuple.mapFirst Node.value) <| ListX.unconsLast es of
-                        Just ( ParenthesizedExpression prevPipelineStep, (_ :: _ :: _) as step ) ->
-                            go prevPipelineStep
+                    case ListX.unconsLast es of
+                        Just ( (Node _ (ParenthesizedExpression prevPipelineStep)) as n, (_ :: _ :: _) as step ) ->
+                            go (Just n) prevPipelineStep
                                 |> (\( input, steps, children ) ->
                                         ( input
                                         , { node = Node (Range.combine <| List.map Node.range step) (Application step), totalRangeAtThisStep = Node.range e } :: steps
                                           -- We want to check each of the other applied expressions individually, else we might find a parenthetical pipeline that is actually not the terminal argument; thus, we add the expressions, not the actual application step
-                                        , step ++ children
+                                        , List.map (Tuple.pair (Just e)) step ++ children
                                         )
                                    )
 
-                        Just ( ParenthesizedExpression prevPipelineStep, [ step ] ) ->
-                            go prevPipelineStep
+                        Just ( (Node _ (ParenthesizedExpression prevPipelineStep)) as n, [ step ] ) ->
+                            go (Just n) prevPipelineStep
                                 |> (\( input, steps, children ) ->
                                         ( input
                                         , { node = step, totalRangeAtThisStep = Node.range e } :: steps
-                                        , step :: children
+                                        , ( Just e, step ) :: children
                                         )
                                    )
 
                         _ ->
                             -- Pipeline ended
-                            ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
+                            ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ ( newParent, e ) ] )
 
                 _ ->
                     -- Pipeline ended
-                    ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ e ] )
+                    ( { node = e, totalRangeAtThisStep = Node.range e }, [], [ ( newParent, e ) ] )
+
+        checkChildren : ( Maybe (Node Expression), Node Expression ) -> List Pipeline
+        checkChildren ( p, n ) =
+            descendToPipelines context
+                (( Types.ParentheticalApplication
+                 , NestedWithin
+                    { aDataStructure = False
+                    , aFlowControlStructure = False
+                    , aLetBlock = False
+                    , aLambdaFunction = False
+                    }
+                 )
+                    :: parents
+                )
+                p
+                n
     in
-    case go node of
+    case go immediateParent node of
         ( _, [], _ ) ->
             -- No steps, so not a pipeline
             Nothing
@@ -727,25 +748,13 @@ getParentheticalPipeline ({ comments } as context) parents node =
         ( input, steps, childNodes ) ->
             (input :: List.reverse steps)
                 |> (\allSteps ->
-                        List.concatMap
-                            (descendToPipelines context
-                                (( Types.ParentheticalApplication
-                                 , NestedWithin
-                                    { aDataStructure = False
-                                    , aFlowControlStructure = False
-                                    , aLetBlock = False
-                                    , aLambdaFunction = False
-                                    }
-                                 )
-                                    :: parents
-                                )
-                            )
-                            childNodes
+                        List.concatMap checkChildren childNodes
                             |> (::)
                                 { operator = Types.ParentheticalApplication
                                 , steps = allSteps
                                 , node = node
                                 , parents = parents
+                                , immediateParent = immediateParent
                                 , internalComments = getCommentsIn (Node.range node) comments
                                 }
                    )

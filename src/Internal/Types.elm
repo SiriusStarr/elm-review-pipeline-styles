@@ -46,6 +46,10 @@ if you need to work with them directly.
     work with this directly.
   - `parents`: A hierarchy of pipelines that this pipeline is nested within
     (start of the list being the immediate parent).
+  - `immediateParent`: The immediate parent node of the overall pipeline, in
+    order to determine if the entire thing should be wrapped in parentheses on
+    fix generation
+  - `internalComments`: A list of any comments that appear within the pipeline
 
 -}
 type alias Pipeline =
@@ -53,6 +57,7 @@ type alias Pipeline =
     , steps : List { node : Node Expression, totalRangeAtThisStep : Range }
     , node : Node Expression
     , parents : List ( Operator (), NestedWithin )
+    , immediateParent : Maybe (Node Expression)
     , internalComments : List (Node String)
     }
 

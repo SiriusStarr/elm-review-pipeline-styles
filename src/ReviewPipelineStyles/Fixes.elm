@@ -65,6 +65,7 @@ import Elm.Syntax.Expression exposing (Expression(..))
 import Elm.Syntax.Node as Node exposing (Node)
 import Elm.Syntax.Range exposing (Range)
 import Internal.Types as Types exposing (NestedWithin(..), Operator(..), Predicate(..))
+import Maybe.Extra as MaybeX
 import Review.Fix as Fix exposing (Fix)
 import Review.ModuleNameLookupTable exposing (ModuleNameLookupTable)
 import ReviewPipelineStyles.Predicates
@@ -311,23 +312,118 @@ resulting pipeline will not have line breaks between operators (but of course
 may still be multi-line, if the expressions are).
 -}
 writeAs : (Range -> String) -> Operator () -> Pipeline -> String
-writeAs extractSource op { steps } =
+writeAs extractSource op { steps, immediateParent } =
     let
+        wrapInParens : String -> String
+        wrapInParens s =
+            if MaybeX.unwrap False (needsParentheses << Node.value) immediateParent then
+                "(" ++ s ++ ")"
+
+            else
+                s
+
         ( concatOp, orderSteps, finalize ) =
             case op of
                 RightPizza ->
-                    ( " |> ", identity, identity )
+                    ( " |> ", identity, wrapInParens )
 
                 LeftPizza ->
-                    ( " <| ", List.reverse, identity )
+                    ( " <| ", List.reverse, wrapInParens )
 
                 RightComposition ->
-                    ( " >> ", identity, identity )
+                    ( " >> ", identity, wrapInParens )
 
                 LeftComposition ->
-                    ( " << ", List.reverse, identity )
+                    ( " << ", List.reverse, wrapInParens )
 
                 ParentheticalApplication ->
+                    ( " ("
+                    , List.reverse
+                    , \s -> wrapInParens s ++ String.repeat (List.length steps - 1) ")"
+                    )
+
+        needsParentheses : Expression -> Bool
+        needsParentheses p =
+            case p of
+                -- These are nicely set-off already
+                TupledExpression _ ->
+                    False
+
+                RecordUpdateExpression _ _ ->
+                    False
+
+                ListExpr _ ->
+                    False
+
+                RecordExpr _ ->
+                    False
+
+                LambdaExpression _ ->
+                    False
+
+                IfBlock _ _ _ ->
+                    False
+
+                LetExpression _ ->
+                    False
+
+                CaseExpression _ ->
+                    False
+
+                -- Already has them
+                ParenthesizedExpression _ ->
+                    False
+
+                -- Definitely need them
+                Application _ ->
+                    True
+
+                -- Safer to wrap it than to depend on precedence
+                OperatorApplication _ _ _ _ ->
+                    True
+
+                -- Probably not possible, but best not to risk it
+                Negation _ ->
+                    True
+
+                -- These...shouldn't be possible
+                UnitExpr ->
+                    False
+
+                Integer _ ->
+                    False
+
+                Hex _ ->
+                    False
+
+                Literal _ ->
+                    False
+
+                CharLiteral _ ->
+                    False
+
+                GLSLExpression _ ->
+                    False
+
+                Floatable _ ->
+                    False
+
+                FunctionOrValue _ _ ->
+                    False
+
+                RecordAccess _ _ ->
+                    False
+
+                RecordAccessFunction _ ->
+                    False
+
+                PrefixOperator _ ->
+                    False
+
+                Operator _ ->
+                    -- Impossible
+                    False
+    in
     List.map (\{ node } -> makeStepAsString extractSource node) steps
         |> orderSteps
         |> String.join concatOp
