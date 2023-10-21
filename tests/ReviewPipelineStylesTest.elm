@@ -106,6 +106,7 @@ fixTests =
         , convertingToParentheticalApplicationTest
         , convertingToRightCompositionTests
         , convertingToLeftCompositionTests
+        , withParenthesisWrapping
         ]
 
 
@@ -2092,6 +2093,104 @@ b =
 """
                         , expectFail """foo  >> bar -- Comments!
     >> baz"""
+                        ]
+        ]
+
+
+withParenthesisWrapping : Test
+withParenthesisWrapping =
+    describe "withParenthesisWrapping"
+        [ test "does not create invalid fixes" <|
+            \() ->
+                """module A exposing (..)
+
+import Parser exposing ((|.), (|=))
+
+a =
+    b
+    |. Parser.spaces
+    |= Parser.getChompedString (Parser.chompWhile (\\c -> c /= '\\n'))
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> that
+                                    (haveMoreStepsThan 1
+                                        |> and
+                                            (doNot
+                                                (haveAParentNotSeparatedBy
+                                                    [ aLetBlock
+                                                    , aLambdaFunction
+                                                    , aFlowControlStructure
+                                                    , aDataStructure
+                                                    ]
+                                                )
+                                            )
+                                    )
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail "Parser.getChompedString (Parser.chompWhile (\\c -> c /= '\\n'))"
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+import Parser exposing ((|.), (|=))
+
+a =
+    b
+    |. Parser.spaces
+    |= ((\\c -> c /= '\\n') |> Parser.chompWhile |> Parser.getChompedString)
+"""
+                        ]
+        , test "does not create invalid fixe2" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    Maybe.andThen
+        (\\parsed ->
+            let
+                number : Maybe Int
+                number =
+                    String.toInt (String.fromList after)
+            in
+            builder parsed number
+        )
+        (parser <| String.fromList before)
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid parentheticalApplicationPipelines
+                                |> that (haveAnyNonInputStepThatIs aSemanticallyInfixFunction)
+                                |> andTryToFixThemBy convertingToRightPizza
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """Maybe.andThen
+        (\\parsed ->
+            let
+                number : Maybe Int
+                number =
+                    String.toInt (String.fromList after)
+            in
+            builder parsed number
+        )
+        (parser <| String.fromList before)"""
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a =
+    (parser <| String.fromList before) |> Maybe.andThen
+        (\\parsed ->
+            let
+                number : Maybe Int
+                number =
+                    String.toInt (String.fromList after)
+            in
+            builder parsed number
+        )
+"""
                         ]
         ]
 
