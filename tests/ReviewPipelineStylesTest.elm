@@ -485,6 +485,26 @@ a =
                     |> Review.Test.expectErrors
                         [ expectFail """foo |> bar |> baz
     |> i |> j |> k""" ]
+        , test "nested multi line left pizza" <|
+            \() ->
+                """module A exposing (..)
+
+a =
+    foo
+        |> (bar <|
+                baz
+           )
+"""
+                    |> Review.Test.run
+                        (rule
+                            [ forbid leftPizzaPipelines
+                                |> that spanMultipleLines
+                                |> fail
+                            ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ expectFail """bar <|
+                baz""" ]
         ]
 
 
