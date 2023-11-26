@@ -649,7 +649,7 @@ getPipeline ({ comments } as context) parents immediateParent node op dir left r
                 |> (\( input, steps, children ) ->
                         input
                             :: List.reverse ({ node = right, totalRangeAtThisStep = Node.range node } :: steps)
-                            |> makePipeline children Types.RightPizza
+                            |> makePipeline (( Just node, right ) :: children) Types.RightPizza
                    )
                 |> Just
 
@@ -658,7 +658,7 @@ getPipeline ({ comments } as context) parents immediateParent node op dir left r
                 |> (\( input, steps, children ) ->
                         input
                             :: List.reverse ({ node = left, totalRangeAtThisStep = Node.range node } :: steps)
-                            |> makePipeline children Types.LeftPizza
+                            |> makePipeline (( Just node, left ) :: children) Types.LeftPizza
                    )
                 |> Just
 
@@ -668,7 +668,7 @@ getPipeline ({ comments } as context) parents immediateParent node op dir left r
                         input
                             :: List.reverse ({ node = left, totalRangeAtThisStep = Node.range node } :: steps)
                             |> List.reverse
-                            |> makePipeline children Types.RightComposition
+                            |> makePipeline (( Just node, left ) :: children) Types.RightComposition
                    )
                 |> Just
 
@@ -678,7 +678,7 @@ getPipeline ({ comments } as context) parents immediateParent node op dir left r
                         input
                             :: List.reverse ({ node = right, totalRangeAtThisStep = Node.range node } :: steps)
                             |> List.reverse
-                            |> makePipeline children Types.LeftComposition
+                            |> makePipeline (( Just node, right ) :: children) Types.LeftComposition
                    )
                 |> Just
 
