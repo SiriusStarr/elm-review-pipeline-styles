@@ -1,8 +1,8 @@
 module ReviewPipelineStylesTest exposing (all)
 
 import Dependencies.ElmExplorationsTest
-import Elm.Syntax.Expression as Expression exposing (Expression)
-import Elm.Syntax.Node as Node exposing (Node)
+import Elm.Syntax.Expression as Expression
+import Elm.Syntax.Node as Node
 import Expect
 import Review.ModuleNameLookupTable exposing (moduleNameFor)
 import Review.Project exposing (addDependency)
@@ -51,7 +51,6 @@ import ReviewPipelineStyles.Predicates
         , haveAParentNotSeparatedBy
         , haveASecondStepThatIs
         , haveASimpleInputStep
-        , haveAnInputStepOf
         , haveAnInputStepThatIs
         , haveAnUnnecessaryInputStep
         , haveAnyNonInputStepThatIs
@@ -71,6 +70,7 @@ import ReviewPipelineStyles.Predicates
         , spanMultipleLines
         , stepPredicate
         )
+import ReviewPipelineStyles.Premade as Premade
 import Test exposing (Test, describe, test)
 
 
@@ -84,7 +84,6 @@ all =
         , spanMultipleLinesTests
         , lengthTests
         , haveASimpleInputStepTests
-        , haveAnInputStepOfTests
         , subpipelineTests
         , nestingTests
         , testUsageTests
@@ -684,66 +683,6 @@ ab = (\\i -> i + 1) |> lambdaNeverSimple
         ]
 
 
-haveAnInputStepOfTests : Test
-haveAnInputStepOfTests =
-    test "haveAnInputStepOf works for all pipelines" <|
-        \() ->
-            let
-                specificIntLiteral : Node Expression -> Bool
-                specificIntLiteral n =
-                    Node.value n == Expression.Integer 117
-            in
-            """module A exposing (..)
-
-a1 =
-    foo <| bar <| 117
-a2 =
-    foo <| bar2 <| 117 <| baz
-b1 =
-    foo << bar << 117
-b2 =
-    foo << bar2 << 117 << baz
-c1 =
-    117 >> bar >> baz
-c2 =
-    foo >> 117 >> bar2 >> baz
-d1 =
-    foo (bar (baz (i (117))))
-d2 =
-    foo (bar2 (baz (i (117 (j k)))))
-e1 =
-    117 |> bar |> baz
-e2 =
-    foo |> 117 |> bar2 |> baz
-"""
-                |> Review.Test.run
-                    (rule
-                        [ forbid leftPizzaPipelines
-                            |> that (haveAnInputStepOf specificIntLiteral)
-                            |> fail
-                        , forbid rightPizzaPipelines
-                            |> that (haveAnInputStepOf specificIntLiteral)
-                            |> fail
-                        , forbid leftCompositionPipelines
-                            |> that (haveAnInputStepOf specificIntLiteral)
-                            |> fail
-                        , forbid rightCompositionPipelines
-                            |> that (haveAnInputStepOf specificIntLiteral)
-                            |> fail
-                        , forbid parentheticalApplicationPipelines
-                            |> that (haveAnInputStepOf specificIntLiteral)
-                            |> fail
-                        ]
-                    )
-                |> Review.Test.expectErrors
-                    [ expectFail """117 |> bar |> baz"""
-                    , expectFail """foo <| bar <| 117"""
-                    , expectFail """foo << bar << 117"""
-                    , expectFail """117 >> bar >> baz"""
-                    , expectFail """foo (bar (baz (i (117))))"""
-                    ]
-
-
 subpipelineTests : Test
 subpipelineTests =
     describe "subpipeline tests"
@@ -1159,7 +1098,7 @@ b = A.foo |> bar
                                             getSteps p
                                                 |> List.head
                                                 |> Maybe.andThen (moduleNameFor table)
-                                                |> Maybe.map ((==) [])
+                                                |> Maybe.map List.isEmpty
                                                 |> Maybe.withDefault False
                                         )
                                     )
@@ -1655,6 +1594,60 @@ c =
     foo  |> bar    |> baz
 """
                         , expectFail "foo  |> bar    |> baz"
+                        ]
+        , test "works on single step" <|
+            \() ->
+                """module A exposing (..)
+
+a = simple <|
+        fn a b c
+b = simple <| fn a b c
+"""
+                    |> Review.Test.run
+                        (rule <|
+                            List.concat
+                                [ Premade.noMultilineLeftPizza
+                                , Premade.noMultilineLeftComposition
+                                , Premade.noSemanticallyInfixFunctionsInLeftPipelines
+                                , [ forbid leftPizzaPipelines
+                                        |> andTryToFixThemBy convertingToRightPizza
+                                        |> andCallThem "<| pipeline"
+                                  ]
+                                , [ forbid leftCompositionPipelines
+                                        |> andTryToFixThemBy convertingToRightComposition
+                                        |> andCallThem "<< pipeline"
+                                  ]
+                                ]
+                        )
+                    |> Review.Test.expectErrors
+                        [ Review.Test.error
+                            { message = "Forbidden pipeline style: multiline <| pipeline with one step"
+                            , details =
+                                [ "This pipeline is a: multiline <| pipeline with one step"
+                                , "It is stylistically-invalid by one of the rules specified in your elm-review config."
+                                , "If you're still unsure why you're seeing it, you should use ReviewPipelineStyles.andReportCustomError to provide a more descriptive error message."
+                                ]
+                            , under = "simple <|\n        fn a b c"
+                            }
+                            |> Review.Test.whenFixed """module A exposing (..)
+
+a = simple <| fn a b c
+b = simple <| fn a b c
+"""
+                        , Review.Test.error
+                            { message = "Forbidden pipeline style: <| pipeline"
+                            , details =
+                                [ "This pipeline is a: <| pipeline"
+                                , "It is stylistically-invalid by one of the rules specified in your elm-review config."
+                                , "If you're still unsure why you're seeing it, you should use ReviewPipelineStyles.andReportCustomError to provide a more descriptive error message."
+                                ]
+                            , under = "simple <| fn a b c"
+                            }
+                            |> Review.Test.whenFixed """module A exposing (..)
+a = simple <|
+        fn a b c
+b = fn a b c |> simple 
+"""
                         ]
         , test "cannot fix with comments, but handles multiline" <|
             \() ->

@@ -54,6 +54,8 @@ config =
     , NoDebug.TodoOrToString.rule
         |> Rule.ignoreErrorsForDirectories [ "tests/" ]
     , NoDeprecated.rule NoDeprecated.defaults
+        --Ignore testing *our* deprecated functions
+        |> Rule.ignoreErrorsForFiles [ "tests/ReviewPipelineStylesDeprecatedTest.elm" ]
     , NoExposingEverything.rule
     , NoForbiddenWords.rule [ "REPLACEME" ]
     , NoImportingEverything.rule []
